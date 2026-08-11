@@ -28,8 +28,8 @@ SQL文字列 → sql/（lex → parse → plan）→ executor/ → storage/
 ```
 project-d/
 ├── cmd/
-│   ├── dbms/      # DBMSライブラリのエントリポイント
-│   └── server/    # 可視化Webサーバーのエントリポイント
+│   ├── dbms/      # DBMSをCLIとして使うエントリポイント
+│   └── server/    # Webアプリケーションサーバーのエントリポイント（認証・API・DBMS）
 │
 ├── types/         # 共有型（Value / Row / Column / Schema）
 │
@@ -51,9 +51,7 @@ project-d/
 │   ├── buffer/    # バッファプール（LRU）
 │   └── wal/       # Write-Ahead Log
 │
-├── server/        # 可視化サーバー（DBコアとは分離）
-│   ├── api/       # REST API（POST /query など）
-│   └── event/     # 可視化イベントの型定義
+├── api/           # HTTPハンドラ（ReactからのAPIリクエストを受け取る）
 │
 └── frontend/      # フロントエンド
     ├── src/
@@ -80,7 +78,7 @@ SQL文字列をプランツリーに変換するパイプライン。lexer → p
 このプロジェクトのコアエンジン。B+Tree・WAL・バッファプールを実装する。executor が定義したインターフェースを実装する。
 
 ### server/
-DBコアとは独立した可視化サーバー。`POST /query` でSQLを受け取り、処理の全ステップ（lexer→parser→planner→executor）をまとめてJSONで返す。
+Webアプリケーションサーバー。ユーザー認証・セッション管理・APIハンドラを担う。DBMSを直接呼び出すため、プロセス間通信不要。
 
 ### server/
 
