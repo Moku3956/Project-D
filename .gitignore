@@ -1,0 +1,15 @@
+# Go
+/cmd/dbms/dbms
+/cmd/server/server
+*.test
+*.out
+
+# DB files
+*.db
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
