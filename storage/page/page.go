@@ -27,12 +27,15 @@ func NewPage(pageType uint8, pageID uint32) *Page {
 
 // バイト列をページに変換
 func FromBytes(b []byte) *Page {
+	if len(b) != PageSize {
+		panic("FromBytes: invalid length")
+	}
 	p := &Page{}
 	copy(p.data[:], b)
 	return p
 }
 
-// ページをバイト列として返す
+// ページデータをバイト列として返す
 func (p *Page) Bytes() []byte { return p.data[:] }
 
 // ヘッダフィールドのgetter/setter
@@ -90,7 +93,7 @@ func (p *Page) FreeSpace() int {
 // AddCell はセルデータをページ末尾側に書き込み、スロットを追加する。
 func (p *Page) AddCell(cell []byte) bool {
 	// +2はオフセット分
-	if p.FreeSpace() < len(cell)+2 {
+	if len(cell) == 0 || p.FreeSpace() < len(cell)+2 {
 		return false
 	}
 	newOff := p.CellContentOffset() - uint16(len(cell))
@@ -119,7 +122,9 @@ func (p *Page) CellAt(i int) []byte {
 // DeleteCell はi番目のセルを論理削除する（スロットを詰める）。
 func (p *Page) DeleteCell(i int) {
 	n := int(p.CellCount())
-	// スロット配列からiを除去（後ろをずらす）
+	if n == 0 || i < 0 || i >= n {
+		panic("DeleteCell: index out of range")
+	}
 	for j := i; j < n-1; j++ {
 		p.setSlot(j, p.GetSlot(j+1))
 	}

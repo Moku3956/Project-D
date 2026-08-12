@@ -5,6 +5,9 @@ import (
 	"testing"
 )
 
+// ---- 正常系 ----
+
+// NewPage が Type・PageID・CellCount・CellContentOffset を正しく初期化するか確認する。
 func TestNewPage(t *testing.T) {
 	p := NewPage(TypeLeaf, 5)
 
@@ -22,6 +25,7 @@ func TestNewPage(t *testing.T) {
 	}
 }
 
+// Bytes でバイト列に変換し、FromBytes で復元してもヘッダフィールドが一致するか確認する。
 func TestFromBytes(t *testing.T) {
 	p := NewPage(TypeInternal, 3)
 	p.SetLSN(42)
@@ -39,6 +43,7 @@ func TestFromBytes(t *testing.T) {
 	}
 }
 
+// AddCell が成功し CellCount が増えることを確認する。
 func TestAddCell(t *testing.T) {
 	p := NewPage(TypeLeaf, 0)
 
@@ -52,19 +57,7 @@ func TestAddCell(t *testing.T) {
 	}
 }
 
-func TestAddCellFull(t *testing.T) {
-	p := NewPage(TypeLeaf, 0)
-
-	// 空き領域を埋め尽くす
-	cell := make([]byte, 100)
-	for p.AddCell(cell) {
-	}
-
-	if p.FreeSpace() < 0 {
-		t.Error("FreeSpace should not be negative")
-	}
-}
-
+// CellAt が挿入順に正しいバイト列を返すことを確認する。
 func TestCellAt(t *testing.T) {
 	p := NewPage(TypeLeaf, 0)
 
@@ -84,6 +77,8 @@ func TestCellAt(t *testing.T) {
 	}
 }
 
+// DeleteCell がスロットを詰め、CellCount を減らすことを確認する。
+// 論理削除のため物理データは残り、削除後の CellAt は先頭バイトのみ検証する。
 func TestDeleteCell(t *testing.T) {
 	p := NewPage(TypeLeaf, 0)
 
@@ -91,28 +86,24 @@ func TestDeleteCell(t *testing.T) {
 	p.AddCell([]byte{4, 5, 6})
 	p.AddCell([]byte{7, 8, 9})
 
-	// 真ん中を削除
 	p.DeleteCell(1)
 
 	if p.CellCount() != 2 {
 		t.Errorf("expected cellCount=2, got %d", p.CellCount())
 	}
 
-	// slot[0] は末尾に隣接するため正確に3バイト返る
 	got0 := p.CellAt(0)
 	if !bytes.Equal(got0, []byte{1, 2, 3}) {
 		t.Errorf("CellAt(0) after delete: expected [1 2 3], got %v", got0)
 	}
 
-	// 論理削除のため slot[1] の終端は旧slot[0]のオフセットになり、
-	// 削除されたセルの物理データを含む可能性がある。
-	// そのため先頭3バイトだけ検証する。
 	got1 := p.CellAt(1)
 	if len(got1) < 3 || !bytes.Equal(got1[:3], []byte{7, 8, 9}) {
 		t.Errorf("CellAt(1) after delete: expected prefix [7 8 9], got %v", got1)
 	}
 }
 
+// FreeSpace がセル+スロット分だけ正確に減ることを確認する。
 func TestFreeSpace(t *testing.T) {
 	p := NewPage(TypeLeaf, 0)
 
@@ -125,18 +116,78 @@ func TestFreeSpace(t *testing.T) {
 	cell := make([]byte, 10)
 	p.AddCell(cell)
 
-	// セル10bytes + スロット2bytes 分減る
 	after := p.FreeSpace()
 	if after != initial-12 {
 		t.Errorf("expected FreeSpace=%d after AddCell, got %d", initial-12, after)
 	}
 }
 
+// RightmostChild の読み書きが正しく機能することを確認する。
 func TestRightmostChild(t *testing.T) {
 	p := NewPage(TypeInternal, 0)
 	p.SetRightmostChild(99)
 
 	if p.RightmostChild() != 99 {
 		t.Errorf("expected RightmostChild=99, got %d", p.RightmostChild())
+	}
+}
+
+// ---- 異常系 ----
+
+// PageSize と異なる長さのバイト列を FromBytes に渡すと panic することを確認する。
+func TestFromBytesInvalidLength(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for invalid length")
+		}
+	}()
+	FromBytes(make([]byte, 10))
+}
+
+// セルが0件のページで DeleteCell を呼ぶと panic することを確認する。
+func TestDeleteCellEmpty(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for empty page")
+		}
+	}()
+	p := NewPage(TypeLeaf, 0)
+	p.DeleteCell(0)
+}
+
+// CellCount 以上のインデックスで DeleteCell を呼ぶと panic することを確認する。
+func TestDeleteCellOutOfRange(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("expected panic for out-of-range index")
+		}
+	}()
+	p := NewPage(TypeLeaf, 0)
+	p.AddCell([]byte{1, 2, 3})
+	p.DeleteCell(1)
+}
+
+// 空スライスを渡すと AddCell が false を返すことを確認する。
+func TestAddCellEmpty(t *testing.T) {
+	p := NewPage(TypeLeaf, 0)
+
+	if p.AddCell([]byte{}) {
+		t.Error("expected AddCell to reject empty cell")
+	}
+	if p.CellCount() != 0 {
+		t.Errorf("expected cellCount=0, got %d", p.CellCount())
+	}
+}
+
+// ページが満杯になると AddCell が false を返し、FreeSpace が負にならないことを確認する。
+func TestAddCellFull(t *testing.T) {
+	p := NewPage(TypeLeaf, 0)
+
+	cell := make([]byte, 100)
+	for p.AddCell(cell) {
+	}
+
+	if p.FreeSpace() < 0 {
+		t.Error("FreeSpace should not be negative")
 	}
 }

@@ -83,34 +83,7 @@ func (bt *BTree) Delete(key types.Value) error {
 
 // Scan は全レコードを葉ノードのリンクリストを辿って返す。
 func (bt *BTree) Scan() ([]types.Row, error) {
-	// 最左の葉を探す
 	rootID := bt.disk.RootPageID()
-	p, err := bt.disk.ReadPage(rootID)
-	if err != nil {
-		return nil, err
-	}
-	for p.Type() == page.TypeInternal {
-		// 最左の子へ
-		if p.CellCount() == 0 {
-			break
-		}
-		cell := p.CellAt(int(p.CellCount()) - 1)
-		_, firstChild := decodeInternalCell(cell, bt.pkKind())
-		// 実際は最左子はrightmost childの逆端 — 最初のスロットの左子を辿る
-		_ = firstChild
-		// 最左子はスロット0の子（スロットは昇順なので右端がrightmostChild）
-		// 内部ノードのセル0の左子を取得
-		cell0 := p.CellAt(0)
-		// 内部ノードのセルは[key][childPageID]でchildIDは右の子
-		// 最左子はrightmostChildとは逆端 → ここではスロット(N-1)がrightmost手前
-		// 設計: slot[i] = (key_i, rightChild_i), leftmost child = rightmost of previous
-		// 葉への到達: 内部ノードのスロットを左から辿る
-		_, childID := decodeInternalCell(cell0, bt.pkKind())
-		_ = childID
-		// 簡略化: 最左子はrightmostChildとは別に管理が必要だが、
-		// 現実装ではscanは葉リンクリストで実装するため、最左葉を見つける
-		break
-	}
 
 	// リンクリストで全葉を辿る（nextはRightmostChildを流用）
 	var rows []types.Row
