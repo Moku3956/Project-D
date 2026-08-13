@@ -1,0 +1,46 @@
+name: ci-go
+
+on:
+  pull_request:
+    branches:
+      - main
+      - stage
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+
+permissions:
+  contents: read
+
+# lint と test は並列実行(実行時間短縮)
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - uses: golangci/golangci-lint-action@v7
+      # リンターがGo 1.24でビルドしたバイナリであったため、意図的に
+      # CI実行環境上でリンターをビルドしなおす
+        with:
+          version: v2.1.6
+          install-mode: goinstall
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
