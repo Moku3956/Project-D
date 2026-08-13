@@ -9,6 +9,9 @@ on:
       - "docs/**"
       - "**.md"
 
+permissions:
+  contents: read
+
 # lint と test は並列実行(実行時間短縮)
 jobs:
   lint:
@@ -20,9 +23,12 @@ jobs:
         with:
           go-version: "1.25"
 
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@v7
+      # リンターがGo 1.24でビルドしたバイナリであったため、意図的に
+      # CI実行環境上でリンターをビルドしなおす
         with:
-          version: latest
+          version: v2.1.6
+          install-mode: goinstall
 
   test:
     runs-on: ubuntu-latest

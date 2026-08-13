@@ -368,24 +368,6 @@ func resetPage(p *page.Page) {
 	binary.BigEndian.PutUint16(b[15:17], uint16(page.PageSize))
 }
 
-func sortLeafCells(p *page.Page) {
-	n := int(p.CellCount())
-	cells := make([][]byte, n)
-	for i := 0; i < n; i++ {
-		c := p.CellAt(i)
-		cp := make([]byte, len(c))
-		copy(cp, c)
-		cells[i] = cp
-	}
-	// TODO: スキーマ参照が必要なためbtree.goからschemaを渡す必要あり
-	// 現時点ではソートはスキップ（挿入順に格納）
-	_ = cells
-}
-
-func sortInternalCells(p *page.Page) {
-	// 同上
-}
-
 func sortCells(cells [][]byte, keyFn func([]byte) types.Value) {
 	// 単純バブルソート
 	for i := 0; i < len(cells); i++ {

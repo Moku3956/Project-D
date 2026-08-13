@@ -3,8 +3,8 @@ package page
 import "encoding/binary"
 
 const (
-	PageSize      = 4096
-	HeaderSize    = 24
+	PageSize       = 4096
+	HeaderSize     = 24
 	FileHeaderSize = 4096
 
 	TypeInternal uint8 = 0x01
@@ -15,7 +15,6 @@ const (
 type Page struct {
 	data [PageSize]byte
 }
-
 
 func NewPage(pageType uint8, pageID uint32) *Page {
 	p := &Page{}
@@ -41,35 +40,35 @@ func (p *Page) Bytes() []byte { return p.data[:] }
 // ヘッダフィールドのgetter/setter
 
 // ページの種別(内部ノードかリーフノード)を取得、設定
-func (p *Page) Type() uint8    { return p.data[0] }
+func (p *Page) Type() uint8     { return p.data[0] }
 func (p *Page) setType(t uint8) { p.data[0] = t }
 
 // ページ番号を取得。設定
-func (p *Page) PageID() uint32 { return binary.BigEndian.Uint32(p.data[1:5]) }
+func (p *Page) PageID() uint32      { return binary.BigEndian.Uint32(p.data[1:5]) }
 func (p *Page) setPageID(id uint32) { binary.BigEndian.PutUint32(p.data[1:5], id) }
 
 // シーケンス番号を取得、設定
-func (p *Page) LSN() uint64 { return binary.BigEndian.Uint64(p.data[5:13]) }
+func (p *Page) LSN() uint64       { return binary.BigEndian.Uint64(p.data[5:13]) }
 func (p *Page) SetLSN(lsn uint64) { binary.BigEndian.PutUint64(p.data[5:13], lsn) }
 
 // セル数(KV数)を取得、設定
-func (p *Page) CellCount() uint16 { return binary.BigEndian.Uint16(p.data[13:15]) }
+func (p *Page) CellCount() uint16     { return binary.BigEndian.Uint16(p.data[13:15]) }
 func (p *Page) setCellCount(n uint16) { binary.BigEndian.PutUint16(p.data[13:15], n) }
 
 // セルの開始オフセットを取得、設定
-func (p *Page) CellContentOffset() uint16 { return binary.BigEndian.Uint16(p.data[15:17]) }
+func (p *Page) CellContentOffset() uint16       { return binary.BigEndian.Uint16(p.data[15:17]) }
 func (p *Page) setCellContentOffset(off uint16) { binary.BigEndian.PutUint16(p.data[15:17], off) }
 
 // フリーリストの開始オフセットを取得、設定
-func (p *Page) FreelistHead() uint16 { return binary.BigEndian.Uint16(p.data[17:19]) }
-func (p *Page) setFreelistHead(off uint16) { binary.BigEndian.PutUint16(p.data[17:19], off) }
+func (p *Page) FreelistHead() uint16              { return binary.BigEndian.Uint16(p.data[17:19]) }
+// func (p *Page) setFreelistHead(off uint16)        { binary.BigEndian.PutUint16(p.data[17:19], off) }
 
 // 断片化バイト数を取得、設定
 func (p *Page) FragmentedBytes() uint8    { return p.data[19] }
-func (p *Page) setFragmentedBytes(n uint8) { p.data[19] = n }
+// func (p *Page) setFragmentedBytes(n uint8) { p.data[19] = n }
 
 // 右端の子ポインタを取得、設定
-func (p *Page) RightmostChild() uint32 { return binary.BigEndian.Uint32(p.data[20:24]) }
+func (p *Page) RightmostChild() uint32      { return binary.BigEndian.Uint32(p.data[20:24]) }
 func (p *Page) SetRightmostChild(id uint32) { binary.BigEndian.PutUint32(p.data[20:24], id) }
 
 // スロット配列: HeaderSize + i*2 の位置に各セルのオフセットを格納

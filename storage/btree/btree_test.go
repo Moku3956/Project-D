@@ -30,8 +30,12 @@ func setupBTree(t *testing.T) (*BTree, func()) {
 		t.Fatal(err)
 	}
 	return bt, func() {
-		dm.Close()
-		os.Remove(path)
+		if err := dm.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

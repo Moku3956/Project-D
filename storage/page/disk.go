@@ -18,6 +18,7 @@ const (
 // DiskManager はファイルへのページ読み書きを担う。
 type DiskManager struct {
 	file       *os.File
+	rootPageID uint32
 	nextPageID uint32
 }
 
@@ -26,7 +27,10 @@ func NewDiskManager(path string) (*DiskManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	dm := &DiskManager{file: file}
+	dm := &DiskManager{
+		file:       file,
+		rootPageID: NoPageID,
+	}
 
 	info, err := file.Stat()
 	if err != nil {
@@ -95,6 +99,9 @@ func (dm *DiskManager) writeFileHeader(rootPageID uint32) error {
 	binary.BigEndian.PutUint32(buf[8:12], rootPageID)
 	binary.BigEndian.PutUint32(buf[12:16], dm.nextPageID)
 	_, err := dm.file.WriteAt(buf, 0)
+	if err == nil {
+		dm.rootPageID = rootPageID
+	}
 	return err
 }
 
@@ -106,14 +113,13 @@ func (dm *DiskManager) readFileHeader() error {
 	if string(buf[0:4]) != magicNumber {
 		return fmt.Errorf("invalid file: bad magic number")
 	}
+	dm.rootPageID = binary.BigEndian.Uint32(buf[8:12])
 	dm.nextPageID = binary.BigEndian.Uint32(buf[12:16])
 	return nil
 }
 
 func (dm *DiskManager) RootPageID() uint32 {
-	buf := make([]byte, 4)
-	dm.file.ReadAt(buf, 8)
-	return binary.BigEndian.Uint32(buf)
+	return dm.rootPageID
 }
 
 func (dm *DiskManager) SetRootPageID(id uint32) error {
