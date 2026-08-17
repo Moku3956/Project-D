@@ -14,7 +14,7 @@ type BTree struct {
 	schema *types.Schema
 }
 
-func New(disk *page.DiskManager, schema *types.Schema) (*BTree, error) {
+func NewBTree(disk *page.DiskManager, schema *types.Schema) (*BTree, error) {
 	bt := &BTree{disk: disk, schema: schema}
 
 	// ルートが存在しない場合は空の葉ノードをルートとして作成
