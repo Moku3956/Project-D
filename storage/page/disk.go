@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	magicNumber    = "MYDB"
+	magicNumber    = "MOKU"
 	fileVersion    = uint16(1)
 	headerPageSize = uint16(PageSize)
 
