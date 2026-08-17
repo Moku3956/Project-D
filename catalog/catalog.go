@@ -41,6 +41,16 @@ func (c *Catalog) GetSchema(table string) (*types.Schema, error) {
 	return &s, nil
 }
 
+func (c *Catalog) TableNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	names := make([]string, 0, len(c.schemas))
+	for name := range c.schemas {
+		names = append(names, name)
+	}
+	return names
+}
+
 func (c *Catalog) TableExists(table string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

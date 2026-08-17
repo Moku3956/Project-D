@@ -11,6 +11,7 @@ import (
 
 // TableRepository はストレージへのアクセスを抽象化する。
 type TableRepository interface {
+	OpenTable(table string, schema *types.Schema) error
 	FindByPK(table string, pk types.Value) (*types.Row, error)
 	Scan(table string) ([]types.Row, error)
 	Insert(table string, row types.Row) error
@@ -58,6 +59,9 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 			Columns:   n.Stmt.Columns,
 		}
 		if err := e.catalog.CreateTable(schema); err != nil {
+			return nil, err
+		}
+		if err := e.repo.OpenTable(schema.TableName, &schema); err != nil {
 			return nil, err
 		}
 		return &Result{}, nil

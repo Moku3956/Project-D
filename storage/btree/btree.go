@@ -106,6 +106,8 @@ func (bt *BTree) Scan() ([]types.Row, error) {
 
 // --- 内部実装 ---
 
+func (bt *BTree) Schema() *types.Schema { return bt.schema }
+
 func (bt *BTree) pkKind() types.DataTypeKind {
 	return bt.schema.Columns[bt.schema.PrimaryKeyIndex()].Type.Kind
 }
