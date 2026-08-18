@@ -140,21 +140,22 @@ func encode(rec *LogRecord) []byte {
 }
 
 func decodeOne(r io.Reader) (*LogRecord, error) {
-	header := make([]byte, 31)
-	if _, err := io.ReadFull(r, header); err != nil {
+	fixed := make([]byte, 31)
+	if _, err := io.ReadFull(r, fixed); err != nil {
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			return nil, io.EOF
+			return nil, io.EOFdemo
+			
 		}
 		return nil, err
 	}
 	rec := &LogRecord{
-		LSN:     binary.BigEndian.Uint64(header[0:8]),
-		TxnID:   binary.BigEndian.Uint64(header[8:16]),
-		PageID:  binary.BigEndian.Uint32(header[16:20]),
-		Op:      Operation(header[20]),
-		PrevLSN: binary.BigEndian.Uint64(header[21:29]),
+		LSN:     binary.BigEndian.Uint64(fixed[0:8]),
+		TxnID:   binary.BigEndian.Uint64(fixed[8:16]),
+		PageID:  binary.BigEndian.Uint32(fixed[16:20]),
+		Op:      Operation(fixed[20]),
+		PrevLSN: binary.BigEndian.Uint64(fixed[21:29]),
 	}
-	redoSize := binary.BigEndian.Uint16(header[29:31])
+	redoSize := binary.BigEndian.Uint16(fixed[29:31])
 	if redoSize > 0 {
 		rec.RedoData = make([]byte, redoSize)
 		if _, err := io.ReadFull(r, rec.RedoData); err != nil {
