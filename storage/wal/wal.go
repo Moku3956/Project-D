@@ -143,8 +143,7 @@ func decodeOne(r io.Reader) (*LogRecord, error) {
 	fixed := make([]byte, 31)
 	if _, err := io.ReadFull(r, fixed); err != nil {
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
-			return nil, io.EOFdemo
-			
+			return nil, io.EOF
 		}
 		return nil, err
 	}
