@@ -61,7 +61,12 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 		if err := e.catalog.CreateTable(schema); err != nil {
 			return nil, err
 		}
-		if err := e.repo.OpenTable(schema.TableName, &schema); err != nil {
+		// TableID が付与されたスキーマをカタログから取得して登録する
+		assigned, err := e.catalog.GetSchema(schema.TableName)
+		if err != nil {
+			return nil, err
+		}
+		if err := e.repo.OpenTable(schema.TableName, assigned); err != nil {
 			return nil, err
 		}
 		return &Result{}, nil

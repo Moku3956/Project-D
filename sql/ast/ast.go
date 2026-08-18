@@ -9,6 +9,7 @@ type Statement interface {
 	Kind() string
 }
 
+// 意図的に汎用性をなくしている(実装複雑化を回避)、将来的には汎用性を持たせる
 type SelectStatement struct {
 	Columns []Expression
 	Table   string

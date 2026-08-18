@@ -41,7 +41,10 @@ func main() {
 		log.Fatalf("Catalog の初期化に失敗: %v", err)
 	}
 
-	repo := infrastructure.NewBTreeRepository(dm)
+	repo, err := infrastructure.NewBTreeRepository(dm)
+	if err != nil {
+		log.Fatalf("Repository の初期化に失敗: %v", err)
+	}
 
 	// 起動時にカタログ上の全テーブルをrepositoryに登録する
 	for _, name := range cat.TableNames() {

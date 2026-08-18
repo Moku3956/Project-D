@@ -22,6 +22,7 @@ type Column struct {
 
 type Schema struct {
 	TableName string
+	TableID   uint32
 	Columns   []Column
 }
 

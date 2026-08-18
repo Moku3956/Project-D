@@ -6,40 +6,66 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// encodeKey はPKのValueをバイト列にエンコードする。
-func encodeKey(v types.Value) []byte {
+// encodeCompositeKey は [tableID(4 BE)][type_tag(1)][pk_bytes] を返す。
+// type_tag: 0x01=INT, 0x02=VARCHAR
+func encodeCompositeKey(tableID uint32, v types.Value) []byte {
+	var tag byte
+	var pkBytes []byte
 	switch val := v.(type) {
 	case types.IntValue:
+		tag = 0x01
 		b := make([]byte, 8)
 		binary.BigEndian.PutUint64(b, uint64(val.V))
-		return b
+		pkBytes = b
 	case types.StringValue:
+		tag = 0x02
 		s := []byte(val.V)
 		b := make([]byte, 2+len(s))
 		binary.BigEndian.PutUint16(b[0:2], uint16(len(s)))
 		copy(b[2:], s)
-		return b
-	default:
-		return nil
+		pkBytes = b
 	}
+	buf := make([]byte, 5+len(pkBytes))
+	binary.BigEndian.PutUint32(buf[0:4], tableID)
+	buf[4] = tag
+	copy(buf[5:], pkBytes)
+	return buf
 }
 
-// decodeKey はバイト列をPKのValueにデコードする。
-func decodeKey(b []byte, kind types.DataTypeKind) (types.Value, int) {
-	switch kind {
-	case types.KindIntType:
-		v := int64(binary.BigEndian.Uint64(b[0:8]))
-		return types.IntValue{V: v}, 8
-	case types.KindVarcharType:
-		length := int(binary.BigEndian.Uint16(b[0:2]))
-		return types.StringValue{V: string(b[2 : 2+length])}, 2 + length
-	default:
-		return types.NullValue{}, 0
+// decodeCompositeKey は自己記述型の複合キーをデコードし、消費バイト数nを返す。
+func decodeCompositeKey(b []byte) (tableID uint32, pk types.Value, n int) {
+	tableID = binary.BigEndian.Uint32(b[0:4])
+	tag := b[4]
+	switch tag {
+	case 0x01: // INT
+		v := int64(binary.BigEndian.Uint64(b[5:13]))
+		pk = types.IntValue{V: v}
+		n = 13
+	case 0x02: // VARCHAR
+		strLen := int(binary.BigEndian.Uint16(b[5:7]))
+		pk = types.StringValue{V: string(b[7 : 7+strLen])}
+		n = 7 + strLen
 	}
+	return
 }
 
-// compareKeys はa < b なら負、a == b なら0、a > b なら正を返す。
-func compareKeys(a, b types.Value) int {
+// cellTableID はセルの先頭4バイトからtableIDを読む。葉/内部どちらにも使える。
+func cellTableID(cell []byte) uint32 {
+	return binary.BigEndian.Uint32(cell[0:4])
+}
+
+// compareCompositeKeys はtableIDを先に、同じなら値で比較する。
+func compareCompositeKeys(aID uint32, aPK types.Value, bID uint32, bPK types.Value) int {
+	if aID != bID {
+		if aID < bID {
+			return -1
+		}
+		return 1
+	}
+	return compareValues(aPK, bPK)
+}
+
+func compareValues(a, b types.Value) int {
 	switch av := a.(type) {
 	case types.IntValue:
 		bv := b.(types.IntValue)
@@ -63,21 +89,15 @@ func compareKeys(a, b types.Value) int {
 }
 
 // encodeLeafCell は葉ノードのセルをエンコードする。
-// フォーマット: [key][NULLビットマップ][offset配列(各2bytes)][カラムデータ...]
-func encodeLeafCell(key types.Value, row types.Row, schema *types.Schema) []byte {
-	keyBytes := encodeKey(key)
+// フォーマット: [compositeKey][NULLビットマップ][offset配列(各2bytes)][カラムデータ...]
+func encodeLeafCell(tableID uint32, key types.Value, row types.Row, schema *types.Schema) []byte {
+	keyBytes := encodeCompositeKey(tableID, key)
 
-	// カラムデータをエンコード
 	colData := make([][]byte, len(schema.Columns))
 	for i, col := range schema.Columns {
-		if col.PrimaryKey {
-			colData[i] = keyBytes
-			continue
-		}
 		colData[i] = encodeValue(row.Values[i], col.Type)
 	}
 
-	// NULLビットマップ
 	n := len(schema.Columns)
 	bitmapSize := 1
 	if n > 8 {
@@ -86,13 +106,10 @@ func encodeLeafCell(key types.Value, row types.Row, schema *types.Schema) []byte
 	bitmap := make([]byte, bitmapSize)
 	for i, v := range row.Values {
 		if types.KindOf(v) == types.KindNull {
-			byteIdx := i / 8
-			bitIdx := uint(i % 8)
-			bitmap[byteIdx] |= 1 << bitIdx
+			bitmap[i/8] |= 1 << uint(i%8)
 		}
 	}
 
-	// オフセット配列
 	offsets := make([]byte, n*2)
 	pos := uint16(len(keyBytes) + bitmapSize + n*2)
 	for i, d := range colData {
@@ -100,7 +117,6 @@ func encodeLeafCell(key types.Value, row types.Row, schema *types.Schema) []byte
 		pos += uint16(len(d))
 	}
 
-	// 結合
 	total := len(keyBytes) + bitmapSize + len(offsets)
 	for _, d := range colData {
 		total += len(d)
@@ -157,11 +173,9 @@ func decodeValue(b []byte, dt types.DataType) (types.Value, int) {
 	}
 }
 
-// decodeLeafCell は葉ノードのセルをデコードしてRowを返す。
-func decodeLeafCell(cell []byte, schema *types.Schema) (types.Value, types.Row) {
-	pkIdx := schema.PrimaryKeyIndex()
-	pkKind := schema.Columns[pkIdx].Type.Kind
-	key, keyLen := decodeKey(cell, pkKind)
+// decodeLeafCell は葉ノードのセルをデコードしてtableID・PK・Rowを返す。
+func decodeLeafCell(cell []byte, schema *types.Schema) (tableID uint32, pk types.Value, row types.Row) {
+	tableID, pk, keyLen := decodeCompositeKey(cell)
 
 	n := len(schema.Columns)
 	bitmapSize := 1
@@ -175,9 +189,7 @@ func decodeLeafCell(cell []byte, schema *types.Schema) (types.Value, types.Row) 
 
 	values := make([]types.Value, n)
 	for i, col := range schema.Columns {
-		byteIdx := i / 8
-		bitIdx := uint(i % 8)
-		if bitmap[byteIdx]&(1<<bitIdx) != 0 {
+		if bitmap[i/8]&(1<<uint(i%8)) != 0 {
 			values[i] = types.NullValue{}
 			continue
 		}
@@ -186,13 +198,14 @@ func decodeLeafCell(cell []byte, schema *types.Schema) (types.Value, types.Row) 
 		values[i] = v
 	}
 
-	return key, types.Row{Values: values}
+	row = types.Row{Values: values}
+	return
 }
 
 // encodeInternalCell は内部ノードのセルをエンコードする。
-// フォーマット: [key][childPageID 4bytes]
-func encodeInternalCell(key types.Value, childPageID uint32) []byte {
-	keyBytes := encodeKey(key)
+// フォーマット: [compositeKey][childPageID 4bytes]
+func encodeInternalCell(tableID uint32, key types.Value, childPageID uint32) []byte {
+	keyBytes := encodeCompositeKey(tableID, key)
 	buf := make([]byte, len(keyBytes)+4)
 	copy(buf, keyBytes)
 	binary.BigEndian.PutUint32(buf[len(keyBytes):], childPageID)
@@ -200,8 +213,22 @@ func encodeInternalCell(key types.Value, childPageID uint32) []byte {
 }
 
 // decodeInternalCell は内部ノードのセルをデコードする。
-func decodeInternalCell(cell []byte, keyKind types.DataTypeKind) (types.Value, uint32) {
-	key, keyLen := decodeKey(cell, keyKind)
-	childID := binary.BigEndian.Uint32(cell[keyLen : keyLen+4])
-	return key, childID
+func decodeInternalCell(cell []byte) (tableID uint32, key types.Value, childID uint32) {
+	tableID, key, n := decodeCompositeKey(cell)
+	childID = binary.BigEndian.Uint32(cell[n : n+4])
+	return
+}
+
+// sortCells は複合キー順にセルをソートする（バブルソート）。
+// 葉/内部どちらのセルも先頭が複合キーなので共通で使える。
+func sortCells(cells [][]byte) {
+	for i := 0; i < len(cells); i++ {
+		for j := 0; j < len(cells)-1-i; j++ {
+			tidA, pkA, _ := decodeCompositeKey(cells[j])
+			tidB, pkB, _ := decodeCompositeKey(cells[j+1])
+			if compareCompositeKeys(tidA, pkA, tidB, pkB) > 0 {
+				cells[j], cells[j+1] = cells[j+1], cells[j]
+			}
+		}
+	}
 }

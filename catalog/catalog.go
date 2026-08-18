@@ -11,9 +11,10 @@ import (
 
 // Catalog はテーブルのスキーマ情報をファイルで永続化する。
 type Catalog struct {
-	mu      sync.RWMutex
-	path    string
-	schemas map[string]types.Schema
+	mu          sync.RWMutex
+	path        string
+	schemas     map[string]types.Schema
+	nextTableID uint32
 }
 
 func NewCatalog(path string) (*Catalog, error) {
@@ -66,6 +67,8 @@ func (c *Catalog) CreateTable(schema types.Schema) error {
 	if _, ok := c.schemas[schema.TableName]; ok {
 		return fmt.Errorf("table %q already exists", schema.TableName)
 	}
+	schema.TableID = c.nextTableID
+	c.nextTableID++
 	c.schemas[schema.TableName] = schema
 	return c.save()
 }
@@ -91,7 +94,13 @@ type columnJSON struct {
 }
 
 type tableJSON struct {
+	TableID uint32       `json:"tableID"`
 	Columns []columnJSON `json:"columns"`
+}
+
+type catalogJSON struct {
+	NextTableID uint32               `json:"nextTableID"`
+	Tables      map[string]tableJSON `json:"tables"`
 }
 
 func (c *Catalog) load() error {
@@ -99,11 +108,12 @@ func (c *Catalog) load() error {
 	if err != nil {
 		return err
 	}
-	raw := make(map[string]tableJSON)
+	var raw catalogJSON
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	for tableName, t := range raw {
+	c.nextTableID = raw.NextTableID
+	for tableName, t := range raw.Tables {
 		cols := make([]types.Column, len(t.Columns))
 		for i, col := range t.Columns {
 			dt, err := parseDataType(col.Type)
@@ -117,13 +127,20 @@ func (c *Catalog) load() error {
 				NotNull:    col.NotNull,
 			}
 		}
-		c.schemas[tableName] = types.Schema{TableName: tableName, Columns: cols}
+		c.schemas[tableName] = types.Schema{
+			TableName: tableName,
+			TableID:   t.TableID,
+			Columns:   cols,
+		}
 	}
 	return nil
 }
 
 func (c *Catalog) save() error {
-	raw := make(map[string]tableJSON, len(c.schemas))
+	raw := catalogJSON{
+		NextTableID: c.nextTableID,
+		Tables:      make(map[string]tableJSON, len(c.schemas)),
+	}
 	for tableName, s := range c.schemas {
 		cols := make([]columnJSON, len(s.Columns))
 		for i, col := range s.Columns {
@@ -134,7 +151,7 @@ func (c *Catalog) save() error {
 				NotNull:    col.NotNull,
 			}
 		}
-		raw[tableName] = tableJSON{Columns: cols}
+		raw.Tables[tableName] = tableJSON{TableID: s.TableID, Columns: cols}
 	}
 	data, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {

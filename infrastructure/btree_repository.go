@@ -9,85 +9,83 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// BTreeRepository は TableRepository を B+Tree で実装する。
+// BTreeRepository は TableRepository を単一の B+Tree で実装する。
+// 全テーブルのデータが1ファイルに格納され、tableID プレフィックスで識別される。
 type BTreeRepository struct {
-	mu     sync.RWMutex
-	disk   *page.DiskManager
-	trees  map[string]*btree.BTree
+	mu      sync.RWMutex
+	bt      *btree.BTree
+	schemas map[string]*types.Schema
 }
 
-func NewBTreeRepository(disk *page.DiskManager) *BTreeRepository {
-	return &BTreeRepository{
-		disk:  disk,
-		trees: make(map[string]*btree.BTree),
+func NewBTreeRepository(disk *page.DiskManager) (*BTreeRepository, error) {
+	bt, err := btree.NewBTree(disk)
+	if err != nil {
+		return nil, err
 	}
+	return &BTreeRepository{
+		bt:      bt,
+		schemas: make(map[string]*types.Schema),
+	}, nil
 }
 
-// OpenTable はテーブル用のB+Treeを初期化する。起動時に呼ぶ。
+// OpenTable はテーブルのスキーマを登録する。起動時・CREATE TABLE後に呼ぶ。
 func (r *BTreeRepository) OpenTable(table string, schema *types.Schema) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	bt, err := btree.NewBTree(r.disk, schema)
-	if err != nil {
-		return err
-	}
-	r.trees[table] = bt
+	r.schemas[table] = schema
 	return nil
 }
 
 func (r *BTreeRepository) FindByPK(table string, pk types.Value) (*types.Row, error) {
-	bt, err := r.tree(table)
+	schema, err := r.schema(table)
 	if err != nil {
 		return nil, err
 	}
-	return bt.Search(pk)
+	return r.bt.Search(schema.TableID, pk, schema)
 }
 
 func (r *BTreeRepository) Scan(table string) ([]types.Row, error) {
-	bt, err := r.tree(table)
+	schema, err := r.schema(table)
 	if err != nil {
 		return nil, err
 	}
-	return bt.Scan()
+	return r.bt.Scan(schema.TableID, schema)
 }
 
 func (r *BTreeRepository) Insert(table string, row types.Row) error {
-	bt, err := r.tree(table)
+	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
-	schema := bt.Schema()
 	pk := row.Values[schema.PrimaryKeyIndex()]
-	return bt.Insert(pk, row)
+	return r.bt.Insert(schema.TableID, pk, row, schema)
 }
 
 func (r *BTreeRepository) Update(table string, pk types.Value, row types.Row) error {
-	bt, err := r.tree(table)
+	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
-	if err := bt.Delete(pk); err != nil {
+	if err := r.bt.Delete(schema.TableID, pk); err != nil {
 		return err
 	}
-	return bt.Insert(pk, row)
+	return r.bt.Insert(schema.TableID, pk, row, schema)
 }
 
 func (r *BTreeRepository) Delete(table string, pk types.Value) error {
-	bt, err := r.tree(table)
+	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
-	return bt.Delete(pk)
+	return r.bt.Delete(schema.TableID, pk)
 }
 
-func (r *BTreeRepository) tree(table string) (*btree.BTree, error) {
+func (r *BTreeRepository) schema(table string) (*types.Schema, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-
-	bt, ok := r.trees[table]
+	s, ok := r.schemas[table]
 	if !ok {
 		return nil, fmt.Errorf("table %q is not open", table)
 	}
-	return bt, nil
+	return s, nil
 }
