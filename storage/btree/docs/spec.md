@@ -50,3 +50,21 @@ PRIMARY KEYをキーとするB+Tree。全データは葉ノードに格納し、
 ## PRIMARY KEY
 
 B+TreeのキーはPRIMARY KEYカラムの値を使用する。キーの比較はカラムの型に応じて行う。
+
+---
+
+## キーフォーマット（複合キー）
+
+1つのB+Treeファイルに複数テーブルのデータを格納するため、キーは以下の複合フォーマットを使用する。
+
+```
+[tableID: 4bytes BE][type_tag: 1byte][pk_bytes]
+```
+
+- `tableID`: テーブルを識別するID（カタログが自動採番）
+- `type_tag`: PKの型を示すタグ（`0x01`=INT, `0x02`=VARCHAR）
+- `pk_bytes`: PKの値バイト列（INTは8byte BE、VARCHARは2byte長さ + UTF-8バイト列）
+
+型タグを埋め込んだ自己記述型のため、デコード時に外部からの型情報が不要。
+
+ソート順はtableIDを先に比較し、同じtableID内ではpk値で比較する。これにより同じキー空間に複数テーブルのレコードが共存でき、ScanはtableIDのプレフィックス範囲スキャンで実現できる。
