@@ -136,7 +136,9 @@ func (l *Lexer) next() Token {
 	}
 
 	ch := l.input[l.pos]
-
+	// 以下のcaseはこの判定を行っている。
+	// 今読んでるのはシングルクォートのリテラル(例:'Alice')なの？
+	// それとも数値(例: 20)？それともそれ以外？(例: SELECT, user_id)？
 	switch {
 	case ch == '\'':
 		return l.readString()
