@@ -109,10 +109,12 @@ type Lexer struct {
 	col    int
 }
 
-func New(input string) *Lexer {
+// NewLexer はSQL文字列を受け取り、トークン列に分解するLexerを返す。
+func NewLexer(input string) *Lexer {
 	return &Lexer{input: input, line: 1, col: 1}
 }
 
+// Tokenize は入力文字列を全てトークン列に変換して返す。末尾にEOFトークンを含む。
 func (l *Lexer) Tokenize() []Token {
 	var tokens []Token
 	for {
@@ -125,6 +127,7 @@ func (l *Lexer) Tokenize() []Token {
 	return tokens
 }
 
+// next は次の1トークンを読み取って返す。
 func (l *Lexer) next() Token {
 	l.skipWhitespace()
 
@@ -184,6 +187,7 @@ func (l *Lexer) next() Token {
 	return Token{Type: ILLEGAL, Literal: string(ch), Line: line, Col: col}
 }
 
+// readIdent は識別子またはキーワードを読み取る。大文字小文字を区別しない。
 func (l *Lexer) readIdent() Token {
 	line, col := l.line, l.col
 	start := l.pos
@@ -198,6 +202,7 @@ func (l *Lexer) readIdent() Token {
 	return Token{Type: IDENT, Literal: lit, Line: line, Col: col}
 }
 
+// readInt は整数リテラルを読み取る。
 func (l *Lexer) readInt() Token {
 	line, col := l.line, l.col
 	start := l.pos
@@ -207,6 +212,7 @@ func (l *Lexer) readInt() Token {
 	return Token{Type: INT_LIT, Literal: l.input[start:l.pos], Line: line, Col: col}
 }
 
+// readString はシングルクォートで囲まれた文字列リテラルを読み取る。
 func (l *Lexer) readString() Token {
 	line, col := l.line, l.col
 	l.advance() // 開き '
@@ -221,6 +227,7 @@ func (l *Lexer) readString() Token {
 	return Token{Type: STR_LIT, Literal: lit, Line: line, Col: col}
 }
 
+// skipWhitespace はスペース・タブ・改行をスキップする。
 func (l *Lexer) skipWhitespace() {
 	for l.pos < len(l.input) {
 		ch := l.input[l.pos]
@@ -232,6 +239,7 @@ func (l *Lexer) skipWhitespace() {
 	}
 }
 
+// advance は現在位置を1文字進め、行・列番号を更新する。
 func (l *Lexer) advance() {
 	if l.pos < len(l.input) && l.input[l.pos] == '\n' {
 		l.line++
@@ -242,6 +250,7 @@ func (l *Lexer) advance() {
 	l.pos++
 }
 
+// tok は現在の行・列位置でTokenを生成する。
 func (l *Lexer) tok(tt TokenType, lit string) Token {
 	return Token{Type: tt, Literal: lit, Line: l.line, Col: l.col}
 }

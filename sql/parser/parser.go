@@ -60,7 +60,7 @@ func New(tokens []lexer.Token) *Parser {
 }
 
 func Parse(input string) (ast.Statement, error) {
-	l := lexer.New(input)
+	l := lexer.NewLexer(input)
 	tokens := l.Tokenize()
 	p := New(tokens)
 	stmt := p.parseStatement()
