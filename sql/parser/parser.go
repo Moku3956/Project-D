@@ -55,14 +55,14 @@ type Parser struct {
 	errors ParseErrors
 }
 
-func New(tokens []lexer.Token) *Parser {
+func NewParser(tokens []lexer.Token) *Parser {
 	return &Parser{tokens: tokens}
 }
 
 func Parse(input string) (ast.Statement, error) {
 	l := lexer.NewLexer(input)
 	tokens := l.Tokenize()
-	p := New(tokens)
+	p := NewParser(tokens)
 	stmt := p.parseStatement()
 	if len(p.errors) > 0 {
 		return nil, p.errors
@@ -101,29 +101,35 @@ func (p *Parser) parseStatement() ast.Statement {
 
 // SELECT columns FROM table [JOIN ...] [WHERE ...] [ORDER BY ...] [LIMIT ...]
 func (p *Parser) parseSelect() ast.Statement {
+	// SELECT
 	p.expect(lexer.SELECT)
 	stmt := &ast.SelectStatement{}
 
+	// カラムリスト: SELECT の直後が EOF ならエラー
 	if p.cur().Type == lexer.EOF {
 		p.addError(MissingColumnList, "SELECT の後にカラムリストが必要です", p.cur())
 		return stmt
 	}
 	stmt.Columns = p.parseExprList()
 
+	// FROM テーブル名
 	if !p.expectWithError(lexer.FROM, MissingFromClause, "FROM が必要です") {
 		return stmt
 	}
 	stmt.Table = p.expectIdent()
 
+	// JOIN（省略可）
 	if p.cur().Type == lexer.INNER || p.cur().Type == lexer.JOIN {
 		stmt.Join = p.parseJoin()
 	}
 
+	// WHERE 条件式（省略可）
 	if p.cur().Type == lexer.WHERE {
 		p.advance()
 		stmt.Where = p.parseExpr(0)
 	}
 
+	// ORDER BY カラム名 [ASC|DESC]（省略可）
 	if p.cur().Type == lexer.ORDER {
 		p.advance()
 		p.expect(lexer.BY)
@@ -138,6 +144,7 @@ func (p *Parser) parseSelect() ast.Statement {
 		stmt.OrderBy = &ast.OrderByClause{Column: col, Desc: desc}
 	}
 
+	// LIMIT 整数（省略可）
 	if p.cur().Type == lexer.LIMIT {
 		p.advance()
 		tok := p.cur()
