@@ -57,7 +57,7 @@ func main() {
 		}
 	}
 
-	pl := planner.New(cat)
+	pl := planner.NewPlanner(cat)
 	eng := executor.NewEngine(repo, cat)
 
 	mux := http.NewServeMux()

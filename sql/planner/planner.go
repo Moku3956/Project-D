@@ -125,7 +125,7 @@ type Planner struct {
 	catalog catalogReader
 }
 
-func New(catalog catalogReader) *Planner {
+func NewPlanner(catalog catalogReader) *Planner {
 	return &Planner{catalog: catalog}
 }
 
