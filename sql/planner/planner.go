@@ -14,50 +14,59 @@ type PlanNode interface {
 	Kind() string
 }
 
+// テーブルを全件スキャンする
 type SequentialScanNode struct {
 	Table  string
 	Schema *types.Schema
 }
 
+// B+TreeのPKで絞り込んでスキャンする
 type IndexScanNode struct {
 	Table  string
 	Schema *types.Schema
-	PkExpr ast.Expression
+	PkExpr ast.Expression // WHERE句のPK比較式
 }
 
+// WHERE条件で行を絞り込む
 type FilterNode struct {
 	Child     PlanNode
 	Condition ast.Expression
 }
 
+// SELECT句で指定されたカラムだけを残す
 type ProjectionNode struct {
 	Child   PlanNode
 	Columns []ast.Expression
 }
 
+// 左右のテーブルを全件突き合わせてJOINする
 type NestedLoopJoinNode struct {
 	Left      PlanNode
 	Right     PlanNode
-	Condition ast.Expression
+	Condition ast.Expression // ON条件
 }
 
+// ORDER BYで並び替える
 type SortNode struct {
 	Child  PlanNode
 	Column string
 	Desc   bool
 }
 
+// LIMITで件数を絞る
 type LimitNode struct {
 	Child PlanNode
 	Count int
 }
 
+// 行を1件挿入する
 type InsertNode struct {
 	Table  string
 	Schema *types.Schema
 	Values []ast.Expression
 }
 
+// 条件に一致する行を更新する
 type UpdateNode struct {
 	Table       string
 	Schema      *types.Schema
@@ -65,16 +74,19 @@ type UpdateNode struct {
 	Where       ast.Expression
 }
 
+// 条件に一致する行を削除する
 type DeleteNode struct {
 	Table  string
 	Schema *types.Schema
 	Where  ast.Expression
 }
 
+// テーブルを作成する
 type CreateTableNode struct {
 	Stmt *ast.CreateTableStatement
 }
 
+// テーブルを削除する
 type DropTableNode struct {
 	TableName string
 }
@@ -175,6 +187,7 @@ func (p *Planner) planSelect(s *ast.SelectStatement) (PlanNode, error) {
 		if err != nil {
 			return nil, &PlanError{Message: fmt.Sprintf("テーブル %q が存在しません", s.Join.Table)}
 		}
+		// 無条件で全件スキャンしている、改善余地あり
 		left := &SequentialScanNode{Table: s.Table, Schema: schema}
 		right := &SequentialScanNode{Table: s.Join.Table, Schema: rightSchema}
 		scan = &NestedLoopJoinNode{Left: left, Right: right, Condition: s.Join.Condition}
