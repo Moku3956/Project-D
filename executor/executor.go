@@ -47,10 +47,12 @@ type Engine struct {
 	catalog catalogReader
 }
 
+// NewEngine はEngineを生成する。
 func NewEngine(repo TableRepository, catalog catalogReader) *Engine {
 	return &Engine{repo: repo, catalog: catalog}
 }
 
+// Execute はプランノードを受け取り、SQLを実行して結果を返す。
 func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 	switch n := node.(type) {
 	case *planner.CreateTableNode:
@@ -101,6 +103,7 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 	return result, nil
 }
 
+// build はプランノードをExecutorの木に変換する。
 func (e *Engine) build(node planner.PlanNode) (Executor, error) {
 	switch n := node.(type) {
 	case *planner.SequentialScanNode:
@@ -162,6 +165,7 @@ type SeqScanExecutor struct {
 	loaded bool
 }
 
+// Next はテーブルの全レコードを1件ずつ返す。最初の呼び出しでストレージから全件読み込む。
 func (e *SeqScanExecutor) Next() (*types.Row, error) {
 	if !e.loaded {
 		rows, err := e.repo.Scan(e.table)
@@ -192,6 +196,7 @@ type IndexScanExecutor struct {
 	done   bool
 }
 
+// Next はPKの値でB+Treeを検索して1件だけ返す。2回目以降はnilを返す。
 func (e *IndexScanExecutor) Next() (*types.Row, error) {
 	if e.done {
 		return nil, nil
@@ -218,6 +223,7 @@ type FilterExecutor struct {
 	cond  ast.Expression
 }
 
+// Next はchildからレコードを1件ずつ受け取り、WHERE条件を満たすレコードだけを返す。
 func (e *FilterExecutor) Next() (*types.Row, error) {
 	for {
 		row, err := e.child.Next()
@@ -245,6 +251,7 @@ type ProjectionExecutor struct {
 	schema *types.Schema
 }
 
+// Next はchildからレコードを1件受け取り、SELECT句で指定されたカラムだけを残して返す。
 func (e *ProjectionExecutor) Next() (*types.Row, error) {
 	row, err := e.child.Next()
 	if err != nil || row == nil {
@@ -284,6 +291,7 @@ type NestedLoopJoinExecutor struct {
 	loaded    bool
 }
 
+// Next は左テーブルの各レコードに対して右テーブルの全レコードを突き合わせ、ON条件を満たすレコードを返す。
 func (e *NestedLoopJoinExecutor) Next() (*types.Row, error) {
 	for {
 		if e.leftRow == nil {
@@ -296,6 +304,7 @@ func (e *NestedLoopJoinExecutor) Next() (*types.Row, error) {
 			e.rightPos = 0
 			e.loaded = false
 		}
+		// 右のテーブルのすべてのレコードをe.rightRowsに格納
 		if !e.loaded {
 			for {
 				r, err := e.right.Next()
@@ -346,6 +355,7 @@ type SortExecutor struct {
 	loaded bool
 }
 
+// Next は最初の呼び出しでchildから全レコードを引き上げてソートし、1件ずつ返す。
 func (e *SortExecutor) Next() (*types.Row, error) {
 	if !e.loaded {
 		for {
@@ -389,6 +399,7 @@ type LimitExecutor struct {
 	n     int
 }
 
+// Next は指定件数に達したらnilを返して終了する。
 func (e *LimitExecutor) Next() (*types.Row, error) {
 	if e.n >= e.count {
 		return nil, nil
@@ -412,6 +423,7 @@ type InsertExecutor struct {
 	done bool
 }
 
+// Next は1回だけレコードを挿入してnilを返す。
 func (e *InsertExecutor) Next() (*types.Row, error) {
 	if e.done {
 		return nil, nil
@@ -440,6 +452,7 @@ type UpdateExecutor struct {
 	done bool
 }
 
+// Next は1回だけ全件スキャンしてWHERE条件に一致するレコードを更新してnilを返す。
 func (e *UpdateExecutor) Next() (*types.Row, error) {
 	if e.done {
 		return nil, nil
@@ -492,6 +505,7 @@ type DeleteExecutor struct {
 	done bool
 }
 
+// Next は1回だけ全件スキャンしてWHERE条件に一致するレコードを削除してnilを返す。
 func (e *DeleteExecutor) Next() (*types.Row, error) {
 	if e.done {
 		return nil, nil
@@ -525,6 +539,7 @@ func (e *DeleteExecutor) Close() error          { return nil }
 
 // ---- ユーティリティ ----
 
+// evalLiteral はリテラル式をtypes.Valueに変換する。
 func evalLiteral(expr ast.Expression) (types.Value, error) {
 	switch e := expr.(type) {
 	case *ast.IntLiteral:
@@ -539,6 +554,7 @@ func evalLiteral(expr ast.Expression) (types.Value, error) {
 	return nil, fmt.Errorf("evalLiteral: unsupported expression %T", expr)
 }
 
+// evalCond はWHERE条件の式を評価して、レコードが条件を満たすかどうかを返す。
 func evalCond(expr ast.Expression, row *types.Row, schema *types.Schema) (bool, error) {
 	switch e := expr.(type) {
 	case *ast.BinaryExpr:
@@ -566,6 +582,7 @@ func evalCond(expr ast.Expression, row *types.Row, schema *types.Schema) (bool, 
 	return false, fmt.Errorf("evalCond: unsupported %T", expr)
 }
 
+// evalBinary は二項演算式を評価する。AND/ORは短絡評価、比較演算子はcompareValuesの結果を使う。
 func evalBinary(e *ast.BinaryExpr, row *types.Row, schema *types.Schema) (bool, error) {
 	if e.Operator == ast.OpAND {
 		l, err := evalCond(e.Left, row, schema)
@@ -607,6 +624,7 @@ func evalBinary(e *ast.BinaryExpr, row *types.Row, schema *types.Schema) (bool, 
 	return false, fmt.Errorf("evalBinary: unsupported operator %v", e.Operator)
 }
 
+// evalValue は式をレコードのコンテキストで評価してtypes.Valueを返す。Identifierの場合はレコードから値を取り出す。
 func evalValue(expr ast.Expression, row *types.Row, schema *types.Schema) (types.Value, error) {
 	switch e := expr.(type) {
 	case *ast.Identifier:
@@ -627,6 +645,7 @@ func evalValue(expr ast.Expression, row *types.Row, schema *types.Schema) (types
 	return nil, fmt.Errorf("evalValue: unsupported %T", expr)
 }
 
+// compareValues は2つの値を比較して-1/0/1を返す。型不一致やNULLのケースは未対応。
 func compareValues(a, b types.Value) int {
 	switch av := a.(type) {
 	case types.IntValue:
@@ -649,6 +668,7 @@ func compareValues(a, b types.Value) int {
 	return 0
 }
 
+// colIndex はスキーマからカラム名の位置を返す。見つからない場合は-1を返す。
 func colIndex(schema *types.Schema, name string) int {
 	for i, col := range schema.Columns {
 		if col.Name == name {
@@ -658,6 +678,7 @@ func colIndex(schema *types.Schema, name string) int {
 	return -1
 }
 
+// joinRows は2つのレコードのValuesを結合して1つのレコードにする。
 func joinRows(a, b *types.Row) *types.Row {
 	vals := make([]types.Value, len(a.Values)+len(b.Values))
 	copy(vals, a.Values)
@@ -665,6 +686,7 @@ func joinRows(a, b *types.Row) *types.Row {
 	return &types.Row{Values: vals}
 }
 
+// joinSchemas は2つのスキーマのカラムを結合して1つのスキーマにする。
 func joinSchemas(a, b *types.Schema) *types.Schema {
 	cols := make([]types.Column, len(a.Columns)+len(b.Columns))
 	copy(cols, a.Columns)
