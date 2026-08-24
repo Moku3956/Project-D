@@ -26,6 +26,7 @@ type Schema struct {
 	Columns   []Column
 }
 
+// PrimaryKeyIndexはPKのインデックスを返す
 func (s *Schema) PrimaryKeyIndex() int {
 	for i, col := range s.Columns {
 		if col.PrimaryKey {

@@ -22,6 +22,7 @@ type DiskManager struct {
 	nextPageID uint32
 }
 
+// NewDiskManager はファイルを開き、新規ならヘッダを書き込み、既存ならヘッダを読み込んでDiskManagerを返す。
 func NewDiskManager(path string) (*DiskManager, error) {
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
@@ -49,6 +50,7 @@ func NewDiskManager(path string) (*DiskManager, error) {
 	return dm, nil
 }
 
+// Close はファイルを閉じる。
 func (dm *DiskManager) Close() error { return dm.file.Close() }
 
 // AllocatePage は新しいページIDを確保してディスクに空ページを書く。
@@ -91,6 +93,7 @@ func (dm *DiskManager) WritePage(p *Page) error {
 // 8-11:  ルートページID (uint32)
 // 12-15: 次のページID (uint32)
 
+// writeFileHeader はルートページIDとnextPageIDをファイル先頭のヘッダ領域に書き込む。
 func (dm *DiskManager) writeFileHeader(rootPageID uint32) error {
 	buf := make([]byte, FileHeaderSize)
 	copy(buf[0:4], magicNumber)
@@ -105,6 +108,7 @@ func (dm *DiskManager) writeFileHeader(rootPageID uint32) error {
 	return err
 }
 
+// readFileHeader はファイル先頭のヘッダ領域からルートページIDとnextPageIDを読み込む。
 func (dm *DiskManager) readFileHeader() error {
 	buf := make([]byte, FileHeaderSize)
 	if _, err := dm.file.ReadAt(buf, 0); err != nil {
@@ -118,12 +122,15 @@ func (dm *DiskManager) readFileHeader() error {
 	return nil
 }
 
+// RootPageID はB+Treeの根ノードのページIDを返す。
 func (dm *DiskManager) RootPageID() uint32 {
 	return dm.rootPageID
 }
 
+// SetRootPageID はB+Treeの根ノードのページIDを更新してヘッダに書き込む。
 func (dm *DiskManager) SetRootPageID(id uint32) error {
 	return dm.writeFileHeader(id)
 }
 
+// Sync はOSのバッファをディスクにフラッシュする。
 func (dm *DiskManager) Sync() error { return dm.file.Sync() }
