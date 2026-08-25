@@ -31,8 +31,8 @@ type Manager struct {
 	wm       *wal.WALManager
 	nextTxnID atomic.Uint64
 
-	mu         sync.Mutex
-	tableLocks map[string]*sync.RWMutex
+	mu         sync.Mutex // muはテーブルマップ自体をロック
+	tableLocks map[string]*sync.RWMutex // tableLocksはテーブルマップにアクセスをして、ロック
 }
 
 func NewManager(wm *wal.WALManager) *Manager {
@@ -44,6 +44,7 @@ func NewManager(wm *wal.WALManager) *Manager {
 
 // Begin は新しいトランザクションを開始する。
 func (m *Manager) Begin() *Txn {
+	// 他のゴルーチンがnextTxtIDを同時にインクリメントしないように
 	id := m.nextTxnID.Add(1)
 	return &Txn{ID: id, State: StateActive}
 }
@@ -52,6 +53,7 @@ func (m *Manager) Begin() *Txn {
 func (m *Manager) RLock(txn *Txn, table string) error {
 	mu := m.tableMu(table)
 	done := make(chan struct{})
+	// ロック処理をメインと分けて処理する。タイムアウト計測を行うため。
 	go func() {
 		mu.RLock()
 		close(done)
@@ -102,7 +104,8 @@ func (m *Manager) Commit(txn *Txn) error {
 	return nil
 }
 
-// Rollback はdirtyページを破棄してロックを解放する。
+// Rollback はバッファプール上のdirtyページを破棄してロックを解放する。
+// wmのbufにはabortログが積まれる。
 func (m *Manager) Rollback(txn *Txn) error {
 	if txn.State != StateActive {
 		return fmt.Errorf("txn %d: not active", txn.ID)
@@ -119,6 +122,7 @@ func (m *Manager) Rollback(txn *Txn) error {
 	return nil
 }
 
+// 読み取りか書き込みかを判断し、ロックを開放する
 func (m *Manager) unlock(txn *Txn) {
 	for _, entry := range txn.locks {
 		table := entry[2:]
@@ -132,6 +136,7 @@ func (m *Manager) unlock(txn *Txn) {
 	txn.locks = nil
 }
 
+// tableLocksマップ自体をロックする
 func (m *Manager) tableMu(table string) *sync.RWMutex {
 	m.mu.Lock()
 	defer m.mu.Unlock()
