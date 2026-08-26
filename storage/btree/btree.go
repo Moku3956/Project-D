@@ -168,9 +168,22 @@ func (bt *BTree) insertRecursive(pageID uint32, tableID uint32, key types.Value,
 	return bt.insertIntoInternal(p, tableID, key, row, schema)
 }
 
+// findInsertPos は複合キー順を保つ挿入位置を返す。
+// 葉・内部どちらのセルも先頭が複合キーなので共通で使える。
+func (bt *BTree) findInsertPos(p *page.Page, tableID uint32, key types.Value) int {
+	n := int(p.CellCount())
+	for i := 0; i < n; i++ {
+		kid, k, _ := decodeCompositeKey(p.CellAt(i))
+		if compareCompositeKeys(kid, k, tableID, key) > 0 {
+			return i
+		}
+	}
+	return n
+}
+
 func (bt *BTree) insertIntoLeaf(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema) (uint32, types.Value, uint32, error) {
 	cell := encodeLeafCell(tableID, key, row, schema)
-	if p.AddCell(cell) {
+	if p.InsertCellAt(bt.findInsertPos(p, tableID, key), cell) {
 		return 0, nil, 0, bt.disk.WritePage(p)
 	}
 	return bt.splitLeaf(p, tableID, key, row, schema)
@@ -186,7 +199,7 @@ func (bt *BTree) insertIntoInternal(p *page.Page, tableID uint32, key types.Valu
 		return 0, nil, 0, nil
 	}
 	cell := encodeInternalCell(upTableID, upKey, newChildID)
-	if p.AddCell(cell) {
+	if p.InsertCellAt(bt.findInsertPos(p, upTableID, upKey), cell) {
 		return 0, nil, 0, bt.disk.WritePage(p)
 	}
 	return bt.splitInternal(p, upTableID, upKey, newChildID)
@@ -198,6 +211,10 @@ func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row ty
 		return 0, nil, 0, err
 	}
 	initLeafLinks(rightPage)
+
+	// 分割前のpの次ページを退避する。右ページをpとその次の間に挟むため、
+	// ここで取っておかないと以降の葉が連結リストから切り離される。
+	oldNext := nextLeafID(p)
 
 	n := int(p.CellCount())
 	cells := make([][]byte, n)
@@ -221,6 +238,8 @@ func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row ty
 		rightPage.AddCell(c)
 	}
 
+	// p → rightPage → （分割前のpの次） の順に繋ぎ直す
+	setNextLeafID(rightPage, oldNext)
 	setNextLeafID(p, rightPage.PageID())
 	setPrevLeafID(rightPage, p.PageID())
 
@@ -283,11 +302,11 @@ func (bt *BTree) createNewRoot(oldRootID uint32, tableID uint32, key types.Value
 	if err != nil {
 		return err
 	}
-	cell := encodeInternalCell(tableID, key, rightPageID)
+	// findChildPageID の規約では、セルの子ポインタはそのセルのキー未満を担当する。
+	// したがって分割キー未満は旧ルート（左）、以上は新しい右ページに振り分ける。
+	cell := encodeInternalCell(tableID, key, oldRootID)
 	newRoot.AddCell(cell)
 	newRoot.SetRightmostChild(rightPageID)
-
-	_ = oldRootID
 
 	if err := bt.disk.WritePage(newRoot); err != nil {
 		return err

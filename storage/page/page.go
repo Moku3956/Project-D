@@ -101,15 +101,33 @@ func (p *Page) FreeSpace() int {
 
 // AddCell はセルデータをページ末尾側に書き込み、スロット配列の末尾にスロットを追加する。
 func (p *Page) AddCell(cell []byte) bool {
+	return p.InsertCellAt(int(p.CellCount()), cell)
+}
+
+// InsertCellAt はセルデータをページ末尾側に書き込み、スロット配列のi番目に割り込ませる。
+// i番目以降のスロットは1つずつ後ろへずれる。セル本体は移動しないため、
+// 動くのはスロット (n-i)*SlotSize バイトだけで済む。
+// スロット配列の並び順がレコードの論理順を表すので、これで論理順を制御する。
+func (p *Page) InsertCellAt(i int, cell []byte) bool {
+	n := int(p.CellCount())
+	if i < 0 || i > n {
+		panic("InsertCellAt: index out of range")
+	}
 	if len(cell) == 0 || p.FreeSpace() < len(cell)+SlotSize {
 		return false
 	}
+
 	newOff := p.CellContentOffset() - uint16(len(cell))
 	copy(p.data[newOff:], cell)
 	p.setCellContentOffset(newOff)
-	n := p.CellCount()
-	p.setSlot(int(n), newOff, uint16(len(cell)))
-	p.setCellCount(n + 1)
+
+	// 後ろから順にずらす。前から回すと未処理のスロットを上書きしてしまう。
+	for j := n - 1; j >= i; j-- {
+		off, length := p.GetSlot(j)
+		p.setSlot(j+1, off, length)
+	}
+	p.setSlot(i, newOff, uint16(len(cell)))
+	p.setCellCount(uint16(n + 1))
 	return true
 }
 

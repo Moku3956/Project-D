@@ -201,11 +201,6 @@ func TestHandleQueryDelete(t *testing.T) {
 }
 
 func TestHandleQueryUpdate(t *testing.T) {
-	t.Skip("B+Treeのキー順序バグにより失敗する。UPDATE = Delete + Insert で" +
-		"再挿入したキーが葉ノードの末尾に積まれ、以降そのキーがFindByPKで到達不能になる。" +
-		"根本原因は page.go の AddCell がスロットを常に末尾へ追加していること。" +
-		"詳細は project_issues.md を参照。")
-
 	mux := setup(t)
 	mustPost(t, mux, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	mustPost(t, mux, "INSERT INTO users VALUES (1, 'Alice')")
@@ -225,13 +220,9 @@ func TestHandleQueryUpdate(t *testing.T) {
 	}
 }
 
+// PKを降順にINSERTしても、全件がIndexScanで引けることを確認する。
+// 葉ノードのスロット配列がキー順に保たれていないと取りこぼす。
 func TestHandleQueryInsertDescendingPK(t *testing.T) {
-	t.Skip("B+Treeのキー順序バグにより失敗する。PKを降順にINSERTすると" +
-		"葉ノードが挿入順のまま並び、searchInLeafが昇順を前提に打ち切るため" +
-		"先に入れたキー以外がFindByPKで到達不能になる。" +
-		"根本原因は page.go の AddCell がスロットを常に末尾へ追加していること。" +
-		"詳細は project_issues.md を参照。")
-
 	mux := setup(t)
 	mustPost(t, mux, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	mustPost(t, mux, "INSERT INTO users VALUES (3, 'Carol')")
@@ -242,6 +233,17 @@ func TestHandleQueryInsertDescendingPK(t *testing.T) {
 		_, resp := post(t, mux, "SELECT * FROM users WHERE id = "+id)
 		if len(resp.Rows) != 1 {
 			t.Errorf("id = %s のレコード数 = %d, want 1", id, len(resp.Rows))
+		}
+	}
+
+	// Scanの結果もPK昇順で返る必要がある
+	_, resp := post(t, mux, "SELECT * FROM users")
+	if len(resp.Rows) != 3 {
+		t.Fatalf("レコード数 = %d, want 3", len(resp.Rows))
+	}
+	for i, want := range []float64{1, 2, 3} {
+		if resp.Rows[i][0] != want {
+			t.Errorf("%d件目のid = %v, want %v", i+1, resp.Rows[i][0], want)
 		}
 	}
 }
