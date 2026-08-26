@@ -78,7 +78,8 @@ func TestCellAt(t *testing.T) {
 }
 
 // DeleteCell がスロットを詰め、CellCount を減らすことを確認する。
-// 論理削除のため物理データは残り、削除後の CellAt は先頭バイトのみ検証する。
+// 削除後も残ったセルは長さまで含めて完全に一致する必要がある。
+// スロットが長さを持つため、削除で消えたセルのバイト列を巻き込まない。
 func TestDeleteCell(t *testing.T) {
 	p := NewPage(TypeLeaf, 0)
 
@@ -98,8 +99,30 @@ func TestDeleteCell(t *testing.T) {
 	}
 
 	got1 := p.CellAt(1)
-	if len(got1) < 3 || !bytes.Equal(got1[:3], []byte{7, 8, 9}) {
-		t.Errorf("CellAt(1) after delete: expected prefix [7 8 9], got %v", got1)
+	if !bytes.Equal(got1, []byte{7, 8, 9}) {
+		t.Errorf("CellAt(1) after delete: expected [7 8 9], got %v", got1)
+	}
+}
+
+// 長さの異なるセルを混在させて削除しても、残ったセルの長さが変わらないことを確認する。
+// スロットが長さを持たなかった頃は、削除されたセルのバイト列を後続セルが飲み込んでいた。
+func TestDeleteCellKeepsLength(t *testing.T) {
+	p := NewPage(TypeLeaf, 0)
+
+	a := []byte("AAAAAAAAAA")     // 10byte
+	b := []byte("BBBBBBBBBBBBBB") // 14byte
+	c := []byte("CCCC")           // 4byte
+	p.AddCell(a)
+	p.AddCell(b)
+	p.AddCell(c)
+
+	p.DeleteCell(1) // 真ん中のBを削除
+
+	if got := p.CellAt(0); !bytes.Equal(got, a) {
+		t.Errorf("CellAt(0) = %q (len=%d), want %q", got, len(got), a)
+	}
+	if got := p.CellAt(1); !bytes.Equal(got, c) {
+		t.Errorf("CellAt(1) = %q (len=%d), want %q", got, len(got), c)
 	}
 }
 
@@ -116,9 +139,11 @@ func TestFreeSpace(t *testing.T) {
 	cell := make([]byte, 10)
 	p.AddCell(cell)
 
+	// セル10byte + スロット SlotSize(4byte) 分だけ減る
 	after := p.FreeSpace()
-	if after != initial-12 {
-		t.Errorf("expected FreeSpace=%d after AddCell, got %d", initial-12, after)
+	want := initial - (10 + SlotSize)
+	if after != want {
+		t.Errorf("expected FreeSpace=%d after AddCell, got %d", want, after)
 	}
 }
 
