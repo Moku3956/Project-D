@@ -104,10 +104,7 @@ func (p *Page) AddCell(cell []byte) bool {
 	return p.InsertCellAt(int(p.CellCount()), cell)
 }
 
-// InsertCellAt はセルデータをページ末尾側に書き込み、スロット配列のi番目に割り込ませる。
-// i番目以降のスロットは1つずつ後ろへずれる。セル本体は移動しないため、
-// 動くのはスロット (n-i)*SlotSize バイトだけで済む。
-// スロット配列の並び順がレコードの論理順を表すので、これで論理順を制御する。
+// InsertCellAt はセルをページ末尾側に書き込み、スロット配列のi番目に割り込ませる。
 func (p *Page) InsertCellAt(i int, cell []byte) bool {
 	n := int(p.CellCount())
 	if i < 0 || i > n {
