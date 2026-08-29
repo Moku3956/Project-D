@@ -13,6 +13,8 @@ import (
 	"github.com/Moku3956/Project-D/infrastructure"
 	"github.com/Moku3956/Project-D/sql/planner"
 	"github.com/Moku3956/Project-D/storage/page"
+	"github.com/Moku3956/Project-D/storage/wal"
+	"github.com/Moku3956/Project-D/txn"
 )
 
 // ---- ヘルパー ----
@@ -39,8 +41,14 @@ func setup(t *testing.T) *http.ServeMux {
 		t.Fatalf("NewBTreeRepository error: %v", err)
 	}
 
+	wm, err := wal.NewWALManager(filepath.Join(dir, "test.wal"))
+	if err != nil {
+		t.Fatalf("NewWALManager error: %v", err)
+	}
+	t.Cleanup(func() { wm.Close() }) //nolint:errcheck
+
 	pl := planner.NewPlanner(cat)
-	eng := executor.NewEngine(repo, cat)
+	eng := executor.NewEngine(repo, cat, txn.NewManager(wm))
 
 	mux := http.NewServeMux()
 	NewHandler(pl, eng).RegisterRoutes(mux)

@@ -12,6 +12,7 @@ import (
 	"github.com/Moku3956/Project-D/sql/planner"
 	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
+	"github.com/Moku3956/Project-D/txn"
 )
 
 func main() {
@@ -57,8 +58,10 @@ func main() {
 		}
 	}
 
+	txnMgr := txn.NewManager(wm)
+
 	pl := planner.NewPlanner(cat)
-	eng := executor.NewEngine(repo, cat)
+	eng := executor.NewEngine(repo, cat, txnMgr)
 
 	mux := http.NewServeMux()
 	api.NewHandler(pl, eng).RegisterRoutes(mux)

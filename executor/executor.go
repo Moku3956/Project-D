@@ -6,6 +6,7 @@ import (
 
 	"github.com/Moku3956/Project-D/sql/ast"
 	"github.com/Moku3956/Project-D/sql/planner"
+	"github.com/Moku3956/Project-D/txn"
 	"github.com/Moku3956/Project-D/types"
 )
 
@@ -45,14 +46,16 @@ type Result struct {
 type Engine struct {
 	repo    TableRepository
 	catalog catalogReader
+	txnMgr  *txn.Manager
 }
 
 // NewEngine はEngineを生成する。
-func NewEngine(repo TableRepository, catalog catalogReader) *Engine {
-	return &Engine{repo: repo, catalog: catalog}
+func NewEngine(repo TableRepository, catalog catalogReader, txnMgr *txn.Manager) *Engine {
+	return &Engine{repo: repo, catalog: catalog, txnMgr: txnMgr}
 }
 
 // Execute はプランノードを受け取り、SQLを実行して結果を返す。
+// SELECT/INSERT/UPDATE/DELETEは1文=1トランザクションとして自動コミットする。
 func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 	switch n := node.(type) {
 	case *planner.CreateTableNode:
@@ -83,6 +86,67 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 		return &Result{}, nil
 	}
 
+	t := e.txnMgr.Begin()
+	if err := e.lockFor(t, node); err != nil {
+		_ = e.txnMgr.Rollback(t)
+		return nil, err
+	}
+
+	result, err := e.executeLocked(node)
+	if err != nil {
+		_ = e.txnMgr.Rollback(t)
+		return nil, err
+	}
+	if err := e.txnMgr.Commit(t); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// lockFor はノードが読み書きするテーブルのロックを取得する。
+// INSERT/UPDATE/DELETEは書き込みロック、それ以外(SELECT系)は読み取りロック。
+func (e *Engine) lockFor(t *txn.Txn, node planner.PlanNode) error {
+	switch n := node.(type) {
+	case *planner.InsertNode:
+		return e.txnMgr.Lock(t, n.Table)
+	case *planner.UpdateNode:
+		return e.txnMgr.Lock(t, n.Table)
+	case *planner.DeleteNode:
+		return e.txnMgr.Lock(t, n.Table)
+	default:
+		for _, table := range tableNamesOf(node) {
+			if err := e.txnMgr.RLock(t, table); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// tableNamesOf はプランノードの木を辿り、スキャン対象のテーブル名を集める。
+func tableNamesOf(node planner.PlanNode) []string {
+	switch n := node.(type) {
+	case *planner.SequentialScanNode:
+		return []string{n.Table}
+	case *planner.IndexScanNode:
+		return []string{n.Table}
+	case *planner.FilterNode:
+		return tableNamesOf(n.Child)
+	case *planner.ProjectionNode:
+		return tableNamesOf(n.Child)
+	case *planner.NestedLoopJoinNode:
+		return append(tableNamesOf(n.Left), tableNamesOf(n.Right)...)
+	case *planner.SortNode:
+		return tableNamesOf(n.Child)
+	case *planner.LimitNode:
+		return tableNamesOf(n.Child)
+	default:
+		return nil
+	}
+}
+
+// executeLocked はロック取得済みのプランノードを実行する。
+func (e *Engine) executeLocked(node planner.PlanNode) (*Result, error) {
 	exec, err := e.build(node)
 	if err != nil {
 		return nil, err
