@@ -27,6 +27,14 @@ func usersSchema() types.Schema {
 	}
 }
 
+// mustCreateTable はテーブルを作成する。エラーがあればt.Fatalする。
+func mustCreateTable(t *testing.T, c *Catalog, schema types.Schema) {
+	t.Helper()
+	if err := c.CreateTable(schema); err != nil {
+		t.Fatalf("CreateTable error: %v", err)
+	}
+}
+
 // ---- 正常系 ----
 
 func TestNewCatalogEmpty(t *testing.T) {
@@ -51,7 +59,7 @@ func TestCreateTable(t *testing.T) {
 
 func TestGetSchema(t *testing.T) {
 	c, _ := NewCatalog(tmpPath(t))
-	c.CreateTable(usersSchema())
+	mustCreateTable(t, c, usersSchema())
 
 	s, err := c.GetSchema("users")
 	if err != nil {
@@ -67,7 +75,7 @@ func TestGetSchema(t *testing.T) {
 
 func TestTableExists(t *testing.T) {
 	c, _ := NewCatalog(tmpPath(t))
-	c.CreateTable(usersSchema())
+	mustCreateTable(t, c, usersSchema())
 
 	if !c.TableExists("users") {
 		t.Error("usersが存在するはずなのにfalse")
@@ -79,7 +87,7 @@ func TestTableExists(t *testing.T) {
 
 func TestDropTable(t *testing.T) {
 	c, _ := NewCatalog(tmpPath(t))
-	c.CreateTable(usersSchema())
+	mustCreateTable(t, c, usersSchema())
 
 	if err := c.DropTable("users"); err != nil {
 		t.Fatalf("DropTable error: %v", err)
@@ -92,7 +100,7 @@ func TestDropTable(t *testing.T) {
 func TestTableIDIncrement(t *testing.T) {
 	c, _ := NewCatalog(tmpPath(t))
 
-	c.CreateTable(usersSchema())
+	mustCreateTable(t, c, usersSchema())
 	s1, _ := c.GetSchema("users")
 
 	orders := types.Schema{
@@ -101,7 +109,7 @@ func TestTableIDIncrement(t *testing.T) {
 			{Name: "id", Type: types.DataType{Kind: types.KindIntType}, PrimaryKey: true},
 		},
 	}
-	c.CreateTable(orders)
+	mustCreateTable(t, c, orders)
 	s2, _ := c.GetSchema("orders")
 
 	if s1.TableID == s2.TableID {
@@ -115,7 +123,7 @@ func TestSaveAndLoad(t *testing.T) {
 	path := tmpPath(t)
 
 	c1, _ := NewCatalog(path)
-	c1.CreateTable(usersSchema())
+	mustCreateTable(t, c1, usersSchema())
 
 	// 別のCatalogインスタンスで同じファイルを読み込む
 	c2, err := NewCatalog(path)
@@ -135,8 +143,10 @@ func TestDropTablePersisted(t *testing.T) {
 	path := tmpPath(t)
 
 	c1, _ := NewCatalog(path)
-	c1.CreateTable(usersSchema())
-	c1.DropTable("users")
+	mustCreateTable(t, c1, usersSchema())
+	if err := c1.DropTable("users"); err != nil {
+		t.Fatalf("DropTable error: %v", err)
+	}
 
 	c2, err := NewCatalog(path)
 	if err != nil {
@@ -151,7 +161,7 @@ func TestNextTableIDPersisted(t *testing.T) {
 	path := tmpPath(t)
 
 	c1, _ := NewCatalog(path)
-	c1.CreateTable(usersSchema())
+	mustCreateTable(t, c1, usersSchema())
 	idBefore := c1.nextTableID
 
 	c2, _ := NewCatalog(path)
@@ -164,7 +174,7 @@ func TestNextTableIDPersisted(t *testing.T) {
 
 func TestCreateTableDuplicate(t *testing.T) {
 	c, _ := NewCatalog(tmpPath(t))
-	c.CreateTable(usersSchema())
+	mustCreateTable(t, c, usersSchema())
 
 	err := c.CreateTable(usersSchema())
 	if err == nil {
@@ -192,7 +202,9 @@ func TestDropTableNotFound(t *testing.T) {
 
 func TestNewCatalogInvalidJSON(t *testing.T) {
 	path := tmpPath(t)
-	os.WriteFile(path, []byte("invalid json"), 0644)
+	if err := os.WriteFile(path, []byte("invalid json"), 0644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
 
 	_, err := NewCatalog(path)
 	if err == nil {

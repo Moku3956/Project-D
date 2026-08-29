@@ -32,8 +32,12 @@ func setupPool(t *testing.T, maxSize int) (*BufferPool, func()) {
 		if err := wm.Close(); err != nil {
 			t.Errorf("wm.Close: %v", err)
 		}
-		os.Remove(dbPath)
-		os.Remove(walPath)
+		if err := os.Remove(dbPath); err != nil {
+			t.Errorf("os.Remove(dbPath): %v", err)
+		}
+		if err := os.Remove(walPath); err != nil {
+			t.Errorf("os.Remove(walPath): %v", err)
+		}
 	}
 }
 

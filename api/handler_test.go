@@ -27,7 +27,7 @@ func setup(t *testing.T) *http.ServeMux {
 	if err != nil {
 		t.Fatalf("NewDiskManager error: %v", err)
 	}
-	t.Cleanup(func() { dm.Close() })
+	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
 
 	cat, err := catalog.NewCatalog(filepath.Join(dir, "catalog.json"))
 	if err != nil {

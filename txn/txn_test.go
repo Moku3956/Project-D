@@ -88,13 +88,17 @@ func TestRLockAndLock(t *testing.T) {
 	if err := m.RLock(txn, "orders"); err != nil {
 		t.Fatalf("RLock error: %v", err)
 	}
-	m.Commit(txn)
+	if err := m.Commit(txn); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
 
 	txn2 := m.Begin()
 	if err := m.Lock(txn2, "users"); err != nil {
 		t.Fatalf("Lock error: %v", err)
 	}
-	m.Commit(txn2)
+	if err := m.Commit(txn2); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
 }
 
 // ---- 異常系 ----
@@ -102,7 +106,9 @@ func TestRLockAndLock(t *testing.T) {
 func TestCommitNotActive(t *testing.T) {
 	m := newManager(t)
 	txn := m.Begin()
-	m.Commit(txn)
+	if err := m.Commit(txn); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
 
 	err := m.Commit(txn)
 	if err == nil {
@@ -113,7 +119,9 @@ func TestCommitNotActive(t *testing.T) {
 func TestRollbackNotActive(t *testing.T) {
 	m := newManager(t)
 	txn := m.Begin()
-	m.Commit(txn)
+	if err := m.Commit(txn); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
 
 	err := m.Rollback(txn)
 	if err == nil {
@@ -148,7 +156,9 @@ func TestLockTimeout(t *testing.T) {
 		t.Fatal("タイムアウトより先にテストがタイムアウトした")
 	}
 
-	m.Commit(txn1)
+	if err := m.Commit(txn1); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
 }
 
 func TestRLockConcurrent(t *testing.T) {
@@ -165,7 +175,9 @@ func TestRLockConcurrent(t *testing.T) {
 				t.Errorf("RLock error: %v", err)
 				return
 			}
-			m.Commit(txn)
+			if err := m.Commit(txn); err != nil {
+				t.Errorf("Commit error: %v", err)
+			}
 		}()
 	}
 	wg.Wait()

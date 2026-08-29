@@ -27,7 +27,7 @@ func newScaleTree(t *testing.T) *BTree {
 	if err != nil {
 		t.Fatalf("NewDiskManager: %v", err)
 	}
-	t.Cleanup(func() { dm.Close() })
+	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
 	bt, err := NewBTree(dm)
 	if err != nil {
 		t.Fatalf("NewBTree: %v", err)

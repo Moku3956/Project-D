@@ -195,7 +195,7 @@ func (p *Planner) planSelect(s *ast.SelectStatement) (PlanNode, error) {
 		scan = p.chooseScan(s.Table, schema, s.Where)
 	}
 
-	var node PlanNode = scan
+	var node = scan
 
 	if s.Where != nil {
 		if _, ok := scan.(*IndexScanNode); !ok {
