@@ -94,8 +94,8 @@ func encodeLeafCell(tableID uint32, key types.Value, row types.Row, schema *type
 	keyBytes := encodeCompositeKey(tableID, key)
 
 	colData := make([][]byte, len(schema.Columns))
-	for i, col := range schema.Columns {
-		colData[i] = encodeValue(row.Values[i], col.Type)
+	for i := range schema.Columns {
+		colData[i] = encodeValue(row.Values[i])
 	}
 
 	n := len(schema.Columns)
@@ -136,7 +136,7 @@ func encodeLeafCell(tableID uint32, key types.Value, row types.Row, schema *type
 	return buf
 }
 
-func encodeValue(v types.Value, dt types.DataType) []byte {
+func encodeValue(v types.Value) []byte {
 	switch val := v.(type) {
 	case types.IntValue:
 		b := make([]byte, 8)
