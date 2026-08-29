@@ -7,6 +7,9 @@ const (
 	HeaderSize     = 24
 	FileHeaderSize = 4096
 
+	// SlotSize はスロット1個のバイト数。[オフセット 2byte][長さ 2byte]
+	SlotSize = 4
+
 	TypeInternal uint8 = 0x01
 	TypeLeaf     uint8 = 0x02
 )
@@ -71,61 +74,77 @@ func (p *Page) FragmentedBytes() uint8    { return p.data[19] }
 func (p *Page) RightmostChild() uint32      { return binary.BigEndian.Uint32(p.data[20:24]) }
 func (p *Page) SetRightmostChild(id uint32) { binary.BigEndian.PutUint32(p.data[20:24], id) }
 
-// スロット配列: HeaderSize + i*2 の位置に各セルのオフセットを格納
-// セル(KV)のオフセットを取得、設定
-func (p *Page) slotOffset(i int) int { return HeaderSize + i*2 }
-func (p *Page) GetSlot(i int) uint16 {
+// スロット配列: HeaderSize + i*SlotSize の位置に [オフセット 2byte][長さ 2byte] を格納する。
+// 長さを明示的に持つことで、スロットの並び順やセルの物理配置に依存せずセルを取り出せる。
+func (p *Page) slotOffset(i int) int { return HeaderSize + i*SlotSize }
+
+// GetSlot はi番目のスロットからセルの開始オフセットと長さを返す。
+func (p *Page) GetSlot(i int) (cellOff, cellLen uint16) {
 	off := p.slotOffset(i)
-	return binary.BigEndian.Uint16(p.data[off : off+2])
+	cellOff = binary.BigEndian.Uint16(p.data[off : off+2])
+	cellLen = binary.BigEndian.Uint16(p.data[off+2 : off+4])
+	return
 }
-func (p *Page) setSlot(i int, cellOff uint16) {
+
+// setSlot はi番目のスロットにセルの開始オフセットと長さを書き込む。
+func (p *Page) setSlot(i int, cellOff, cellLen uint16) {
 	off := p.slotOffset(i)
 	binary.BigEndian.PutUint16(p.data[off:off+2], cellOff)
+	binary.BigEndian.PutUint16(p.data[off+2:off+4], cellLen)
 }
 
 // FreeSpace はスロット配列とセルデータの間の空き領域サイズを返す。
 func (p *Page) FreeSpace() int {
-	slotEnd := HeaderSize + int(p.CellCount())*2
+	slotEnd := HeaderSize + int(p.CellCount())*SlotSize
 	return int(p.CellContentOffset()) - slotEnd
 }
 
-// AddCell はセルデータをページ末尾側に書き込み、スロットを追加する。
+// AddCell はセルデータをページ末尾側に書き込み、スロット配列の末尾にスロットを追加する。
 func (p *Page) AddCell(cell []byte) bool {
-	// +2はオフセット分
-	if len(cell) == 0 || p.FreeSpace() < len(cell)+2 {
+	return p.InsertCellAt(int(p.CellCount()), cell)
+}
+
+// InsertCellAt はセルをページ末尾側に書き込み、スロット配列のi番目に割り込ませる。
+func (p *Page) InsertCellAt(i int, cell []byte) bool {
+	n := int(p.CellCount())
+	if i < 0 || i > n {
+		panic("InsertCellAt: index out of range")
+	}
+	if len(cell) == 0 || p.FreeSpace() < len(cell)+SlotSize {
 		return false
 	}
+
 	newOff := p.CellContentOffset() - uint16(len(cell))
 	copy(p.data[newOff:], cell)
 	p.setCellContentOffset(newOff)
-	n := p.CellCount()
-	p.setSlot(int(n), newOff)
-	p.setCellCount(n + 1)
+
+	// 後ろから順にずらす。前から回すと未処理のスロットを上書きしてしまう。
+	for j := n - 1; j >= i; j-- {
+		off, length := p.GetSlot(j)
+		p.setSlot(j+1, off, length)
+	}
+	p.setSlot(i, newOff, uint16(len(cell)))
+	p.setCellCount(uint16(n + 1))
 	return true
 }
 
-// i番目のセルデータを返す(セルフォーマットを見ないと若干複雑かも？)
+// CellAt はi番目のセルデータを返す。長さはスロットから読むため、
+// 他のスロットの状態に影響されない。
 func (p *Page) CellAt(i int) []byte {
-	off := p.GetSlot(i)
-	// セルサイズはスロットの次のオフセットとの差か末尾から計算
-	// 終端: 次スロットが指す位置またはPageSize
-	var end uint16
-	if i == 0 {
-		end = PageSize
-	} else {
-		end = p.GetSlot(i - 1)
-	}
-	return p.data[off:end]
+	off, length := p.GetSlot(i)
+	return p.data[off : off+length]
 }
 
 // DeleteCell はi番目のセルを論理削除する（スロットを詰める）。
+// セル本体はページ上に残るため、空き領域は次のページ再構築まで回収されない。
 func (p *Page) DeleteCell(i int) {
 	n := int(p.CellCount())
 	if n == 0 || i < 0 || i >= n {
 		panic("DeleteCell: index out of range")
 	}
 	for j := i; j < n-1; j++ {
-		p.setSlot(j, p.GetSlot(j+1))
+		off, length := p.GetSlot(j + 1)
+		p.setSlot(j, off, length)
 	}
 	p.setCellCount(uint16(n - 1))
 }

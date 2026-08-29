@@ -22,9 +22,11 @@ type Column struct {
 
 type Schema struct {
 	TableName string
+	TableID   uint32
 	Columns   []Column
 }
 
+// PrimaryKeyIndexはPKのインデックスを返す
 func (s *Schema) PrimaryKeyIndex() int {
 	for i, col := range s.Columns {
 		if col.PrimaryKey {

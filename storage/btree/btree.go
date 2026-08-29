@@ -8,23 +8,19 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// BTree はB+Treeの操作を提供する。
+// BTree はB+Treeの操作を提供する。全テーブルで単一インスタンスを共有する。
 type BTree struct {
-	disk   *page.DiskManager
-	schema *types.Schema
+	disk *page.DiskManager
 }
 
-func New(disk *page.DiskManager, schema *types.Schema) (*BTree, error) {
-	bt := &BTree{disk: disk, schema: schema}
+func NewBTree(disk *page.DiskManager) (*BTree, error) {
+	bt := &BTree{disk: disk}
 
-	// ルートが存在しない場合は空の葉ノードをルートとして作成
 	if disk.RootPageID() == page.NoPageID {
-		// nextPageIDが0のときルートも未作成
 		info, err := disk.AllocatePage(page.TypeLeaf)
 		if err != nil {
 			return nil, err
 		}
-		// 葉ノードのprev/nextを0で初期化
 		initLeafLinks(info)
 		if err := disk.WritePage(info); err != nil {
 			return nil, err
@@ -36,44 +32,41 @@ func New(disk *page.DiskManager, schema *types.Schema) (*BTree, error) {
 	return bt, nil
 }
 
-// Search はキーに対応するRowを返す。見つからない場合はnil。
-func (bt *BTree) Search(key types.Value) (*types.Row, error) {
-	leafPage, err := bt.findLeaf(key)
+// Search はtableIDとキーに対応するRowを返す。見つからない場合はnil。
+func (bt *BTree) Search(tableID uint32, key types.Value, schema *types.Schema) (*types.Row, error) {
+	leafPage, err := bt.findLeaf(tableID, key)
 	if err != nil {
 		return nil, err
 	}
-	idx, found := bt.searchInLeaf(leafPage, key)
+	idx, found := bt.searchInLeaf(leafPage, tableID, key)
 	if !found {
 		return nil, nil
 	}
 	cell := leafPage.CellAt(idx)
-	_, row := decodeLeafCell(cell, bt.schema)
+	_, _, row := decodeLeafCell(cell, schema)
 	return &row, nil
 }
 
-// Insert はキーとRowを挿入する。
-func (bt *BTree) Insert(key types.Value, row types.Row) error {
+// Insert はtableIDとキーとRowを挿入する。
+func (bt *BTree) Insert(tableID uint32, key types.Value, row types.Row, schema *types.Schema) error {
 	rootID := bt.disk.RootPageID()
-	newKey, newPageID, err := bt.insertRecursive(rootID, key, row)
+	upTableID, upKey, newPageID, err := bt.insertRecursive(rootID, tableID, key, row, schema)
 	if err != nil {
 		return err
 	}
-	// ルートが分割された場合
 	if newPageID != 0 {
-		if err := bt.createNewRoot(rootID, newKey, newPageID); err != nil {
-			return err
-		}
+		return bt.createNewRoot(rootID, upTableID, upKey, newPageID)
 	}
 	return nil
 }
 
-// Delete はキーに対応するレコードを削除する。
-func (bt *BTree) Delete(key types.Value) error {
-	leafPage, err := bt.findLeaf(key)
+// Delete はtableIDとキーに対応するレコードを削除する。
+func (bt *BTree) Delete(tableID uint32, key types.Value) error {
+	leafPage, err := bt.findLeaf(tableID, key)
 	if err != nil {
 		return err
 	}
-	idx, found := bt.searchInLeaf(leafPage, key)
+	idx, found := bt.searchInLeaf(leafPage, tableID, key)
 	if !found {
 		return fmt.Errorf("key not found")
 	}
@@ -81,23 +74,32 @@ func (bt *BTree) Delete(key types.Value) error {
 	return bt.disk.WritePage(leafPage)
 }
 
-// Scan は全レコードを葉ノードのリンクリストを辿って返す。
-func (bt *BTree) Scan() ([]types.Row, error) {
-	rootID := bt.disk.RootPageID()
-
-	// リンクリストで全葉を辿る（nextはRightmostChildを流用）
+// Scan はtableIDに属する全レコードを葉ノードのリンクリストを辿って返す。
+func (bt *BTree) Scan(tableID uint32, schema *types.Schema) ([]types.Row, error) {
 	var rows []types.Row
-	leafID := bt.findLeftmostLeaf(rootID)
+	leafID := bt.findLeftmostLeaf(bt.disk.RootPageID())
 	for leafID != page.NoPageID {
 		p, err := bt.disk.ReadPage(leafID)
 		if err != nil {
 			return nil, err
 		}
 		n := int(p.CellCount())
+		done := false
 		for i := 0; i < n; i++ {
 			cell := p.CellAt(i)
-			_, row := decodeLeafCell(cell, bt.schema)
+			tid := cellTableID(cell)
+			if tid < tableID {
+				continue
+			}
+			if tid > tableID {
+				done = true
+				break
+			}
+			_, _, row := decodeLeafCell(cell, schema)
 			rows = append(rows, row)
+		}
+		if done {
+			break
 		}
 		leafID = nextLeafID(p)
 	}
@@ -106,11 +108,7 @@ func (bt *BTree) Scan() ([]types.Row, error) {
 
 // --- 内部実装 ---
 
-func (bt *BTree) pkKind() types.DataTypeKind {
-	return bt.schema.Columns[bt.schema.PrimaryKeyIndex()].Type.Kind
-}
-
-func (bt *BTree) findLeaf(key types.Value) (*page.Page, error) {
+func (bt *BTree) findLeaf(tableID uint32, key types.Value) (*page.Page, error) {
 	pageID := bt.disk.RootPageID()
 	for {
 		p, err := bt.disk.ReadPage(pageID)
@@ -120,40 +118,29 @@ func (bt *BTree) findLeaf(key types.Value) (*page.Page, error) {
 		if p.Type() == page.TypeLeaf {
 			return p, nil
 		}
-		pageID = bt.findChildPageID(p, key)
+		pageID = bt.findChildPageID(p, tableID, key)
 	}
 }
 
-func (bt *BTree) findChildPageID(p *page.Page, key types.Value) uint32 {
+func (bt *BTree) findChildPageID(p *page.Page, tableID uint32, key types.Value) uint32 {
 	n := int(p.CellCount())
 	for i := 0; i < n; i++ {
 		cell := p.CellAt(i)
-		k, childID := decodeInternalCell(cell, bt.pkKind())
-		if compareKeys(key, k) < 0 {
-			// keyはchildIDの左の子にある
-			// 左の子はi==0のときは別途管理が必要だが、
-			// ここではchildIDをそのまま使う（右の子）
-			// 正確にはi==0の場合は左子ポインタが必要
-			_ = childID
-			if i == 0 {
-				// 最左子: スロット配列の前に左ポインタは今回は右端で代用
-				// TODO: 正確な実装
-				return childID
-			}
-			prevCell := p.CellAt(i - 1)
-			_, prevChild := decodeInternalCell(prevCell, bt.pkKind())
-			return prevChild
+		kid, k, childID := decodeInternalCell(cell)
+		if compareCompositeKeys(tableID, key, kid, k) < 0 {
+			return childID
 		}
 	}
 	return p.RightmostChild()
 }
 
-func (bt *BTree) searchInLeaf(p *page.Page, key types.Value) (int, bool) {
+// serchInLeafは探しているtable, keyに対応するセルを指定された(絞り済み)ページの中から探す。
+func (bt *BTree) searchInLeaf(p *page.Page, tableID uint32, key types.Value) (int, bool) {
 	n := int(p.CellCount())
 	for i := 0; i < n; i++ {
 		cell := p.CellAt(i)
-		k, _ := decodeLeafCell(cell, bt.schema)
-		cmp := compareKeys(k, key)
+		kid, k, _ := decodeCompositeKey(cell)
+		cmp := compareCompositeKeys(kid, k, tableID, key)
 		if cmp == 0 {
 			return i, true
 		}
@@ -165,53 +152,84 @@ func (bt *BTree) searchInLeaf(p *page.Page, key types.Value) (int, bool) {
 }
 
 // insertRecursive はpageIDのサブツリーにkey/rowを挿入する。
-// 分割が発生した場合は(分割キー, 新しい右ページID)を返す。
-func (bt *BTree) insertRecursive(pageID uint32, key types.Value, row types.Row) (types.Value, uint32, error) {
+// 分割が発生した場合は(分割tableID, 分割キー, 新しい右ページID)を返す。
+func (bt *BTree) insertRecursive(pageID uint32, tableID uint32, key types.Value, row types.Row, schema *types.Schema) (uint32, types.Value, uint32, error) {
 	p, err := bt.disk.ReadPage(pageID)
 	if err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
-
 	if p.Type() == page.TypeLeaf {
-		return bt.insertIntoLeaf(p, key, row)
+		return bt.insertIntoLeaf(p, tableID, key, row, schema)
 	}
-	return bt.insertIntoInternal(p, key, row)
+	return bt.insertIntoInternal(p, tableID, key, row, schema)
 }
 
-func (bt *BTree) insertIntoLeaf(p *page.Page, key types.Value, row types.Row) (types.Value, uint32, error) {
-	cell := encodeLeafCell(key, row, bt.schema)
-	if p.AddCell(cell) {
-		return nil, 0, bt.disk.WritePage(p)
+// findInsertPos は複合キー順を保つ挿入位置を返す。
+// 葉・内部どちらのセルも先頭が複合キーなので共通で使える。
+func (bt *BTree) findInsertPos(p *page.Page, tableID uint32, key types.Value) int {
+	n := int(p.CellCount())
+	for i := 0; i < n; i++ {
+		kid, k, _ := decodeCompositeKey(p.CellAt(i))
+		if compareCompositeKeys(kid, k, tableID, key) > 0 {
+			return i
+		}
 	}
-	return bt.splitLeaf(p, key, row)
+	return n
 }
 
-func (bt *BTree) insertIntoInternal(p *page.Page, key types.Value, row types.Row) (types.Value, uint32, error) {
-	childID := bt.findChildPageID(p, key)
-	upKey, newChildID, err := bt.insertRecursive(childID, key, row)
+func (bt *BTree) insertIntoLeaf(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema) (uint32, types.Value, uint32, error) {
+	cell := encodeLeafCell(tableID, key, row, schema)
+	if p.InsertCellAt(bt.findInsertPos(p, tableID, key), cell) {
+		return 0, nil, 0, bt.disk.WritePage(p)
+	}
+	return bt.splitLeaf(p, tableID, key, row, schema)
+}
+
+func (bt *BTree) insertIntoInternal(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema) (uint32, types.Value, uint32, error) {
+	childID := bt.findChildPageID(p, tableID, key)
+	upTableID, upKey, newChildID, err := bt.insertRecursive(childID, tableID, key, row, schema)
 	if err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
 	if newChildID == 0 {
-		return nil, 0, nil
+		return 0, nil, 0, nil
 	}
-	// 子が分割された → このノードにupKeyを挿入
-	cell := encodeInternalCell(upKey, newChildID)
-	if p.AddCell(cell) {
-		return nil, 0, bt.disk.WritePage(p)
+
+	// childID(分割で縮んだ古い子)が占めていたポインタをnewChildIDに差し替える。
+	// キーは変わらずchildだけ変わるためセル長は同じで、その場で上書きできる。
+	replaced := false
+	n := int(p.CellCount())
+	for i := 0; i < n; i++ {
+		cellBytes := p.CellAt(i)
+		kid, k, cid := decodeInternalCell(cellBytes)
+		if cid == childID {
+			copy(cellBytes, encodeInternalCell(kid, k, newChildID))
+			replaced = true
+			break
+		}
 	}
-	return bt.splitInternal(p, upKey, newChildID)
+	if !replaced {
+		p.SetRightmostChild(newChildID)
+	}
+
+	// childID(古い子。範囲が縮んだ)をupKey未満の担当として新しいセルで追加する。
+	cell := encodeInternalCell(upTableID, upKey, childID)
+	if p.InsertCellAt(bt.findInsertPos(p, upTableID, upKey), cell) {
+		return 0, nil, 0, bt.disk.WritePage(p)
+	}
+	return bt.splitInternal(p, upTableID, upKey, childID)
 }
 
-func (bt *BTree) splitLeaf(p *page.Page, key types.Value, row types.Row) (types.Value, uint32, error) {
-	// 新しい右ページを作成
+func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema) (uint32, types.Value, uint32, error) {
 	rightPage, err := bt.disk.AllocatePage(page.TypeLeaf)
 	if err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
 	initLeafLinks(rightPage)
 
-	// 既存セルを全部取り出す
+	// 分割前に p が持っていた次のポインタを保持
+	oldNext := nextLeafID(p)
+
 	n := int(p.CellCount())
 	cells := make([][]byte, n)
 	for i := 0; i < n; i++ {
@@ -221,15 +239,10 @@ func (bt *BTree) splitLeaf(p *page.Page, key types.Value, row types.Row) (types.
 		cells[i] = cp
 	}
 
-	// 新セルを追加してソート
-	newCell := encodeLeafCell(key, row, bt.schema)
+	newCell := encodeLeafCell(tableID, key, row, schema)
 	cells = append(cells, newCell)
-	sortCells(cells, func(c []byte) types.Value {
-		k, _ := decodeLeafCell(c, bt.schema)
-		return k
-	})
+	sortCells(cells)
 
-	// 左右に分割
 	mid := len(cells) / 2
 	resetPage(p)
 	for _, c := range cells[:mid] {
@@ -239,27 +252,33 @@ func (bt *BTree) splitLeaf(p *page.Page, key types.Value, row types.Row) (types.
 		rightPage.AddCell(c)
 	}
 
-	// リンクリストを更新
+	// p → rightPage → （分割前のpの次） の順に繋ぎ直す
+	setNextLeafID(rightPage, oldNext)
 	setNextLeafID(p, rightPage.PageID())
-	setPrevLeafID(rightPage, p.PageID())
+	// prev方向は未実装（呼び出し元がないため一旦コメントアウト）。ページヘッダに専用フィールドがなく、
+	// 実装するにはヘッダ拡張が必要。storage/btree/docs/spec.md参照。
+	// setPrevLeafID(rightPage, p.PageID())
 
-	// 分割キーは右ページの最小キー
-	splitKey, _ := decodeLeafCell(cells[mid], bt.schema)
+	splitTableID, splitKey, _ := decodeCompositeKey(cells[mid])
 
 	if err := bt.disk.WritePage(p); err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
 	if err := bt.disk.WritePage(rightPage); err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
-	return splitKey, rightPage.PageID(), nil
+	return splitTableID, splitKey, rightPage.PageID(), nil
 }
 
-func (bt *BTree) splitInternal(p *page.Page, key types.Value, rightChildID uint32) (types.Value, uint32, error) {
+func (bt *BTree) splitInternal(p *page.Page, tableID uint32, key types.Value, rightChildID uint32) (uint32, types.Value, uint32, error) {
 	newRight, err := bt.disk.AllocatePage(page.TypeInternal)
 	if err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
+
+	// 分割前にpが持っていたRightmostChildを退避する。これはどのキーとも組まないため、
+	// セル配列(cells)には含まれず、分割後は右ページがそのまま引き継ぐ。
+	oldRightmost := p.RightmostChild()
 
 	n := int(p.CellCount())
 	cells := make([][]byte, n)
@@ -269,53 +288,44 @@ func (bt *BTree) splitInternal(p *page.Page, key types.Value, rightChildID uint3
 		copy(cp, c)
 		cells[i] = cp
 	}
-	newCell := encodeInternalCell(key, rightChildID)
+	newCell := encodeInternalCell(tableID, key, rightChildID)
 	cells = append(cells, newCell)
-	sortCells(cells, func(c []byte) types.Value {
-		k, _ := decodeInternalCell(c, bt.pkKind())
-		return k
-	})
+	sortCells(cells)
 
 	mid := len(cells) / 2
-	midKey, _ := decodeInternalCell(cells[mid], bt.pkKind())
+	midTableID, midKey, _ := decodeCompositeKey(cells[mid])
 
 	resetPage(p)
 	for _, c := range cells[:mid] {
 		p.AddCell(c)
 	}
-	// 右端の子ポインタを設定
-	_, midChild := decodeInternalCell(cells[mid], bt.pkKind())
+	_, _, midChild := decodeInternalCell(cells[mid])
 	p.SetRightmostChild(midChild)
 
 	for _, c := range cells[mid+1:] {
 		newRight.AddCell(c)
 	}
-	_, lastChild := decodeInternalCell(cells[len(cells)-1], bt.pkKind())
-	newRight.SetRightmostChild(lastChild)
+	newRight.SetRightmostChild(oldRightmost)
 
 	if err := bt.disk.WritePage(p); err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
 	if err := bt.disk.WritePage(newRight); err != nil {
-		return nil, 0, err
+		return 0, nil, 0, err
 	}
-	return midKey, newRight.PageID(), nil
+	return midTableID, midKey, newRight.PageID(), nil
 }
 
-func (bt *BTree) createNewRoot(oldRootID uint32, key types.Value, rightPageID uint32) error {
+func (bt *BTree) createNewRoot(oldRootID uint32, tableID uint32, key types.Value, rightPageID uint32) error {
 	newRoot, err := bt.disk.AllocatePage(page.TypeInternal)
 	if err != nil {
 		return err
 	}
-	cell := encodeInternalCell(key, rightPageID)
+	// findChildPageID の規約では、セルの子ポインタはそのセルのキー未満を担当する。
+	// したがって分割キー未満は旧ルート（左）、以上は新しい右ページに振り分ける。
+	cell := encodeInternalCell(tableID, key, oldRootID)
 	newRoot.AddCell(cell)
 	newRoot.SetRightmostChild(rightPageID)
-
-	// 左子ポインタとして旧ルートを保持
-	// 内部ノードのcell[0]の左子 = oldRootID
-	// 今の実装ではcell[0]のchildIDが右子なので、leftmostは別途必要
-	// 簡略化: oldRootIDをfreelistHeadに一時保存（TODO: 正式な左子ポインタ）
-	_ = oldRootID
 
 	if err := bt.disk.WritePage(newRoot); err != nil {
 		return err
@@ -333,19 +343,18 @@ func (bt *BTree) findLeftmostLeaf(pageID uint32) uint32 {
 			return pageID
 		}
 		cell := p.CellAt(0)
-		_, childID := decodeInternalCell(cell, bt.pkKind())
+		_, _, childID := decodeInternalCell(cell)
 		pageID = childID
 	}
 }
 
 // --- ページユーティリティ ---
 
-// 葉ノードのnextPageIDはRightmostChildフィールドを流用する（葉では子ポインタ不要）。
-
 func initLeafLinks(p *page.Page) {
 	p.SetRightmostChild(page.NoPageID)
 }
 
+// nextLeafIDは次のリーフノードのポインタを返す。
 func nextLeafID(p *page.Page) uint32 {
 	return p.RightmostChild()
 }
@@ -354,27 +363,16 @@ func setNextLeafID(p *page.Page, id uint32) {
 	p.SetRightmostChild(id)
 }
 
-func setPrevLeafID(p *page.Page, id uint32) {
-	_ = id
-}
+// prev方向は未実装のため一旦コメントアウト。呼び出し元(splitLeaf)もコメントアウト済み。
+// func setPrevLeafID(p *page.Page, id uint32) {
+// 	_ = id
+// }
 
 func resetPage(p *page.Page) {
 	b := p.Bytes()
 	for i := page.HeaderSize; i < page.PageSize; i++ {
 		b[i] = 0
 	}
-	// セルカウントとセルコンテンツオフセットをリセット
 	binary.BigEndian.PutUint16(b[13:15], 0)
 	binary.BigEndian.PutUint16(b[15:17], uint16(page.PageSize))
-}
-
-func sortCells(cells [][]byte, keyFn func([]byte) types.Value) {
-	// 単純バブルソート
-	for i := 0; i < len(cells); i++ {
-		for j := 0; j < len(cells)-1-i; j++ {
-			if compareKeys(keyFn(cells[j]), keyFn(cells[j+1])) > 0 {
-				cells[j], cells[j+1] = cells[j+1], cells[j]
-			}
-		}
-	}
 }
