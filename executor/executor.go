@@ -103,8 +103,7 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 	return result, nil
 }
 
-// lockFor はノードが読み書きするテーブルのロックを取得する。
-// INSERT/UPDATE/DELETEは書き込みロック、それ以外(SELECT系)は読み取りロック。
+// lockFor はノードが読み書きするテーブルのロックを取得する。(読み込みと書き込みクエリのロックを分ける)
 func (e *Engine) lockFor(t *txn.Txn, node planner.PlanNode) error {
 	switch n := node.(type) {
 	case *planner.InsertNode:
