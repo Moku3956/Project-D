@@ -6,9 +6,6 @@ import (
 )
 
 // Recover はWALを読み、コミット済みトランザクションのページ変更をディスクへ再適用する(Redo)。
-// No-Stealによりコミット前のページ変更はディスクに反映されていないため、
-// 未コミットのトランザクションのレコードは無視するだけでよい(Undoは不要)。
-// BTree/BufferPoolを構築する前、起動時に一度だけ呼ぶ。
 func Recover(disk *page.DiskManager, wm *wal.WALManager) error {
 	records, err := wm.ReadAll()
 	if err != nil {
@@ -22,8 +19,7 @@ func Recover(disk *page.DiskManager, wm *wal.WALManager) error {
 		}
 	}
 
-	// RedoDataはページ全体のバイト列なので、ページごとに最後(LSNが最大)の
-	// コミット済みレコード1件だけを適用すれば十分。
+	// RedoDataはページ全体のバイト列なので、最新のページ(LSNが最大)のみでOK
 	latest := make(map[uint32]*wal.LogRecord)
 	for _, r := range records {
 		if r.Op != wal.OpInsert && r.Op != wal.OpUpdate && r.Op != wal.OpDelete {
