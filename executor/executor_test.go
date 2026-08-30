@@ -8,6 +8,8 @@ import (
 
 	"github.com/Moku3956/Project-D/sql/parser"
 	"github.com/Moku3956/Project-D/sql/planner"
+	"github.com/Moku3956/Project-D/storage/buffer"
+	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/txn"
 	"github.com/Moku3956/Project-D/types"
@@ -95,12 +97,12 @@ func (r *mockRepo) FindByPK(table string, pk types.Value) (*types.Row, error) {
 	return nil, nil
 }
 
-func (r *mockRepo) Insert(table string, row types.Row) error {
+func (r *mockRepo) Insert(table string, row types.Row, txnID uint64) error {
 	r.data[table] = append(r.data[table], row)
 	return nil
 }
 
-func (r *mockRepo) Update(table string, pk types.Value, row types.Row) error {
+func (r *mockRepo) Update(table string, pk types.Value, row types.Row, txnID uint64) error {
 	schema, ok := r.schemas[table]
 	if !ok {
 		return fmt.Errorf("table %q not found", table)
@@ -115,7 +117,7 @@ func (r *mockRepo) Update(table string, pk types.Value, row types.Row) error {
 	return fmt.Errorf("record not found")
 }
 
-func (r *mockRepo) Delete(table string, pk types.Value) error {
+func (r *mockRepo) Delete(table string, pk types.Value, txnID uint64) error {
 	schema, ok := r.schemas[table]
 	if !ok {
 		return fmt.Errorf("table %q not found", table)
@@ -133,15 +135,25 @@ func (r *mockRepo) Delete(table string, pk types.Value) error {
 // ---- ヘルパー ----
 
 // setup はテスト用のカタログ・リポジトリ・Engineを生成する。
+// mockRepoはバッファプールを経由しないが、txn.Managerのコミット時FlushAllが
+// 参照するため実物を用意する。
 func setup(t *testing.T) (*mockCatalog, *mockRepo, *Engine) {
 	t.Helper()
 	cat := newMockCatalog()
 	repo := newMockRepo()
-	wm, err := wal.NewWALManager(filepath.Join(t.TempDir(), "test.wal"))
+	dir := t.TempDir()
+	dm, err := page.NewDiskManager(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewDiskManager error: %v", err)
+	}
+	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
+	wm, err := wal.NewWALManager(filepath.Join(dir, "test.wal"))
 	if err != nil {
 		t.Fatalf("NewWALManager error: %v", err)
 	}
-	eng := NewEngine(repo, cat, txn.NewManager(wm))
+	t.Cleanup(func() { wm.Close() }) //nolint:errcheck
+	bp := buffer.NewBufferPool(dm, wm, 100)
+	eng := NewEngine(repo, cat, txn.NewManager(wm, bp))
 	return cat, repo, eng
 }
 

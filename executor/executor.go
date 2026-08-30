@@ -15,9 +15,9 @@ type TableRepository interface {
 	OpenTable(table string, schema *types.Schema) error
 	FindByPK(table string, pk types.Value) (*types.Row, error)
 	Scan(table string) ([]types.Row, error)
-	Insert(table string, row types.Row) error
-	Update(table string, pk types.Value, row types.Row) error
-	Delete(table string, pk types.Value) error
+	Insert(table string, row types.Row, txnID uint64) error
+	Update(table string, pk types.Value, row types.Row, txnID uint64) error
+	Delete(table string, pk types.Value, txnID uint64) error
 }
 
 // catalogReader はexecutorが必要とするカタログ操作。
@@ -92,7 +92,7 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 		return nil, err
 	}
 
-	result, err := e.executeLocked(node)
+	result, err := e.executeLocked(node, t.ID)
 	if err != nil {
 		_ = e.txnMgr.Rollback(t)
 		return nil, err
@@ -145,8 +145,8 @@ func tableNamesOf(node planner.PlanNode) []string {
 }
 
 // executeLocked はロック取得済みのプランノードを実行する。
-func (e *Engine) executeLocked(node planner.PlanNode) (*Result, error) {
-	exec, err := e.build(node)
+func (e *Engine) executeLocked(node planner.PlanNode, txnID uint64) (*Result, error) {
+	exec, err := e.build(node, txnID)
 	if err != nil {
 		return nil, err
 	}
@@ -166,53 +166,53 @@ func (e *Engine) executeLocked(node planner.PlanNode) (*Result, error) {
 	return result, nil
 }
 
-// build はプランノードをExecutorの木に変換する。
-func (e *Engine) build(node planner.PlanNode) (Executor, error) {
+// build はプランノードをExecutorの木に変換する。txnIDはInsert/Update/Deleteの各Executorに渡す。
+func (e *Engine) build(node planner.PlanNode, txnID uint64) (Executor, error) {
 	switch n := node.(type) {
 	case *planner.SequentialScanNode:
 		return &SeqScanExecutor{repo: e.repo, table: n.Table, schema: n.Schema}, nil
 	case *planner.IndexScanNode:
 		return &IndexScanExecutor{repo: e.repo, table: n.Table, schema: n.Schema, pkExpr: n.PkExpr}, nil
 	case *planner.FilterNode:
-		child, err := e.build(n.Child)
+		child, err := e.build(n.Child, txnID)
 		if err != nil {
 			return nil, err
 		}
 		return &FilterExecutor{child: child, cond: n.Condition}, nil
 	case *planner.ProjectionNode:
-		child, err := e.build(n.Child)
+		child, err := e.build(n.Child, txnID)
 		if err != nil {
 			return nil, err
 		}
 		return &ProjectionExecutor{child: child, cols: n.Columns, schema: child.Schema()}, nil
 	case *planner.NestedLoopJoinNode:
-		left, err := e.build(n.Left)
+		left, err := e.build(n.Left, txnID)
 		if err != nil {
 			return nil, err
 		}
-		right, err := e.build(n.Right)
+		right, err := e.build(n.Right, txnID)
 		if err != nil {
 			return nil, err
 		}
 		return &NestedLoopJoinExecutor{repo: e.repo, left: left, right: right, cond: n.Condition}, nil
 	case *planner.SortNode:
-		child, err := e.build(n.Child)
+		child, err := e.build(n.Child, txnID)
 		if err != nil {
 			return nil, err
 		}
 		return &SortExecutor{child: child, column: n.Column, desc: n.Desc}, nil
 	case *planner.LimitNode:
-		child, err := e.build(n.Child)
+		child, err := e.build(n.Child, txnID)
 		if err != nil {
 			return nil, err
 		}
 		return &LimitExecutor{child: child, count: n.Count}, nil
 	case *planner.InsertNode:
-		return &InsertExecutor{repo: e.repo, node: n}, nil
+		return &InsertExecutor{repo: e.repo, node: n, txnID: txnID}, nil
 	case *planner.UpdateNode:
-		return &UpdateExecutor{repo: e.repo, node: n}, nil
+		return &UpdateExecutor{repo: e.repo, node: n, txnID: txnID}, nil
 	case *planner.DeleteNode:
-		return &DeleteExecutor{repo: e.repo, node: n}, nil
+		return &DeleteExecutor{repo: e.repo, node: n, txnID: txnID}, nil
 	}
 	return nil, fmt.Errorf("executor: unsupported plan node %T", node)
 }
@@ -482,8 +482,9 @@ func (e *LimitExecutor) Close() error          { return e.child.Close() }
 
 type InsertExecutor struct {
 	repo TableRepository
-	node *planner.InsertNode
-	done bool
+	node  *planner.InsertNode
+	txnID uint64
+	done  bool
 }
 
 // Next は1回だけレコードを挿入してnilを返す。
@@ -501,7 +502,7 @@ func (e *InsertExecutor) Next() (*types.Row, error) {
 		vals[i] = v
 	}
 	row := types.Row{Values: vals}
-	return nil, e.repo.Insert(e.node.Table, row)
+	return nil, e.repo.Insert(e.node.Table, row, e.txnID)
 }
 
 func (e *InsertExecutor) Schema() *types.Schema { return e.node.Schema }
@@ -510,9 +511,10 @@ func (e *InsertExecutor) Close() error          { return nil }
 // ---- UpdateExecutor ----
 
 type UpdateExecutor struct {
-	repo TableRepository
-	node *planner.UpdateNode
-	done bool
+	repo  TableRepository
+	node  *planner.UpdateNode
+	txnID uint64
+	done  bool
 }
 
 // Next は1回だけ全件スキャンしてWHERE条件に一致するレコードを更新してnilを返す。
@@ -550,7 +552,7 @@ func (e *UpdateExecutor) Next() (*types.Row, error) {
 			updated[idx] = v
 		}
 		pk := row.Values[pkIdx]
-		if err := e.repo.Update(e.node.Table, pk, types.Row{Values: updated}); err != nil {
+		if err := e.repo.Update(e.node.Table, pk, types.Row{Values: updated}, e.txnID); err != nil {
 			return nil, err
 		}
 	}
@@ -563,9 +565,10 @@ func (e *UpdateExecutor) Close() error          { return nil }
 // ---- DeleteExecutor ----
 
 type DeleteExecutor struct {
-	repo TableRepository
-	node *planner.DeleteNode
-	done bool
+	repo  TableRepository
+	node  *planner.DeleteNode
+	txnID uint64
+	done  bool
 }
 
 // Next は1回だけ全件スキャンしてWHERE条件に一致するレコードを削除してnilを返す。
@@ -590,7 +593,7 @@ func (e *DeleteExecutor) Next() (*types.Row, error) {
 			}
 		}
 		pk := row.Values[pkIdx]
-		if err := e.repo.Delete(e.node.Table, pk); err != nil {
+		if err := e.repo.Delete(e.node.Table, pk, e.txnID); err != nil {
 			return nil, err
 		}
 	}

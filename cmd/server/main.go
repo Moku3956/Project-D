@@ -10,10 +10,14 @@ import (
 	"github.com/Moku3956/Project-D/executor"
 	"github.com/Moku3956/Project-D/infrastructure"
 	"github.com/Moku3956/Project-D/sql/planner"
+	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/txn"
 )
+
+// bufferPoolSize はバッファプールに保持するページ数の上限。
+const bufferPoolSize = 1000
 
 func main() {
 	dbPath := envOr("DB_PATH", "data/mydb.db")
@@ -42,7 +46,9 @@ func main() {
 		log.Fatalf("Catalog の初期化に失敗: %v", err)
 	}
 
-	repo, err := infrastructure.NewBTreeRepository(dm)
+	bp := buffer.NewBufferPool(dm, wm, bufferPoolSize)
+
+	repo, err := infrastructure.NewBTreeRepository(dm, bp, wm)
 	if err != nil {
 		log.Fatalf("Repository の初期化に失敗: %v", err)
 	}
@@ -58,7 +64,7 @@ func main() {
 		}
 	}
 
-	txnMgr := txn.NewManager(wm)
+	txnMgr := txn.NewManager(wm, bp)
 
 	pl := planner.NewPlanner(cat)
 	eng := executor.NewEngine(repo, cat, txnMgr)

@@ -4,11 +4,14 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/page"
+	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/types"
 )
 
 const testTableID = uint32(1)
+const testTxnID = uint64(1)
 
 func testSchema() *types.Schema {
 	return &types.Schema{
@@ -23,20 +26,29 @@ func testSchema() *types.Schema {
 
 func setupBTree(t *testing.T) (*BTree, func()) {
 	t.Helper()
-	path := t.TempDir() + "/test.db"
-	dm, err := page.NewDiskManager(path)
+	dir := t.TempDir()
+	dbPath := dir + "/test.db"
+	dm, err := page.NewDiskManager(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bt, err := NewBTree(dm)
+	wm, err := wal.NewWALManager(dir + "/test.wal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bp := buffer.NewBufferPool(dm, wm, 100)
+	bt, err := NewBTree(dm, bp, wm)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return bt, func() {
+		if err := wm.Close(); err != nil {
+			t.Fatal(err)
+		}
 		if err := dm.Close(); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Remove(path); err != nil {
+		if err := os.Remove(dbPath); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -50,7 +62,7 @@ func TestInsertAndSearch(t *testing.T) {
 	schema := testSchema()
 
 	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
-	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema); err != nil {
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -89,7 +101,7 @@ func TestInsertMultipleAndScan(t *testing.T) {
 
 	for i := int64(1); i <= 5; i++ {
 		row := types.Row{Values: []types.Value{types.IntValue{V: i}, types.StringValue{V: "user"}}}
-		if err := bt.Insert(testTableID, types.IntValue{V: i}, row, schema); err != nil {
+		if err := bt.Insert(testTableID, types.IntValue{V: i}, row, schema, testTxnID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -109,10 +121,10 @@ func TestDelete(t *testing.T) {
 	schema := testSchema()
 
 	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
-	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema); err != nil {
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
 		t.Fatal(err)
 	}
-	if err := bt.Delete(testTableID, types.IntValue{V: 1}); err != nil {
+	if err := bt.Delete(testTableID, types.IntValue{V: 1}, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,10 +161,10 @@ func TestMultipleTablesIsolated(t *testing.T) {
 	row1 := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "from-table1"}}}
 	row2 := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "from-table2"}}}
 
-	if err := bt.Insert(1, types.IntValue{V: 1}, row1, schema1); err != nil {
+	if err := bt.Insert(1, types.IntValue{V: 1}, row1, schema1, testTxnID); err != nil {
 		t.Fatal(err)
 	}
-	if err := bt.Insert(2, types.IntValue{V: 1}, row2, schema2); err != nil {
+	if err := bt.Insert(2, types.IntValue{V: 1}, row2, schema2, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,12 +208,12 @@ func TestInsertDuplicateKey(t *testing.T) {
 	schema := testSchema()
 
 	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
-	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema); err != nil {
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
 	dup := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Bob"}}}
-	if err := bt.Insert(testTableID, types.IntValue{V: 1}, dup, schema); err != nil {
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, dup, schema, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,15 +232,15 @@ func TestDeleteThenReinsert(t *testing.T) {
 	schema := testSchema()
 
 	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
-	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema); err != nil {
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
 		t.Fatal(err)
 	}
-	if err := bt.Delete(testTableID, types.IntValue{V: 1}); err != nil {
+	if err := bt.Delete(testTableID, types.IntValue{V: 1}, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
 	row2 := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Bob"}}}
-	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row2, schema); err != nil {
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row2, schema, testTxnID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -252,7 +264,7 @@ func TestSplitAndScanOrder(t *testing.T) {
 	const n = 100
 	for i := int64(1); i <= n; i++ {
 		row := types.Row{Values: []types.Value{types.IntValue{V: i}, types.StringValue{V: "user"}}}
-		if err := bt.Insert(testTableID, types.IntValue{V: i}, row, schema); err != nil {
+		if err := bt.Insert(testTableID, types.IntValue{V: i}, row, schema, testTxnID); err != nil {
 			t.Fatalf("Insert(%d): %v", i, err)
 		}
 	}
@@ -277,7 +289,7 @@ func TestDeleteNotFound(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
 
-	err := bt.Delete(testTableID, types.IntValue{V: 99})
+	err := bt.Delete(testTableID, types.IntValue{V: 99}, testTxnID)
 	if err == nil {
 		t.Error("存在しないキーの削除でエラーが返らなかった")
 	}

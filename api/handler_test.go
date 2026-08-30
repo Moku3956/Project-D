@@ -12,6 +12,7 @@ import (
 	"github.com/Moku3956/Project-D/executor"
 	"github.com/Moku3956/Project-D/infrastructure"
 	"github.com/Moku3956/Project-D/sql/planner"
+	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/txn"
@@ -36,19 +37,21 @@ func setup(t *testing.T) *http.ServeMux {
 		t.Fatalf("NewCatalog error: %v", err)
 	}
 
-	repo, err := infrastructure.NewBTreeRepository(dm)
-	if err != nil {
-		t.Fatalf("NewBTreeRepository error: %v", err)
-	}
-
 	wm, err := wal.NewWALManager(filepath.Join(dir, "test.wal"))
 	if err != nil {
 		t.Fatalf("NewWALManager error: %v", err)
 	}
 	t.Cleanup(func() { wm.Close() }) //nolint:errcheck
 
+	bp := buffer.NewBufferPool(dm, wm, 100)
+
+	repo, err := infrastructure.NewBTreeRepository(dm, bp, wm)
+	if err != nil {
+		t.Fatalf("NewBTreeRepository error: %v", err)
+	}
+
 	pl := planner.NewPlanner(cat)
-	eng := executor.NewEngine(repo, cat, txn.NewManager(wm))
+	eng := executor.NewEngine(repo, cat, txn.NewManager(wm, bp))
 
 	mux := http.NewServeMux()
 	NewHandler(pl, eng).RegisterRoutes(mux)

@@ -5,7 +5,9 @@ import (
 	"sync"
 
 	"github.com/Moku3956/Project-D/storage/btree"
+	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/page"
+	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/types"
 )
 
@@ -18,8 +20,8 @@ type BTreeRepository struct {
 }
 
 // NewBTreeRepository はDiskManagerを受け取りB+Treeを初期化してBTreeRepositoryを返す。
-func NewBTreeRepository(disk *page.DiskManager) (*BTreeRepository, error) {
-	bt, err := btree.NewBTree(disk)
+func NewBTreeRepository(disk *page.DiskManager, bp *buffer.BufferPool, wm *wal.WALManager) (*BTreeRepository, error) {
+	bt, err := btree.NewBTree(disk, bp, wm)
 	if err != nil {
 		return nil, err
 	}
@@ -56,34 +58,34 @@ func (r *BTreeRepository) Scan(table string) ([]types.Row, error) {
 }
 
 // Insert はレコードのPKを取り出してB+Treeに挿入する。
-func (r *BTreeRepository) Insert(table string, row types.Row) error {
+func (r *BTreeRepository) Insert(table string, row types.Row, txnID uint64) error {
 	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
 	pk := row.Values[schema.PrimaryKeyIndex()]
-	return r.bt.Insert(schema.TableID, pk, row, schema)
+	return r.bt.Insert(schema.TableID, pk, row, schema, txnID)
 }
 
 // Update は既存レコードをDeleteしてから新しいレコードをInsertする。B+TreeにUpdateがないため。
-func (r *BTreeRepository) Update(table string, pk types.Value, row types.Row) error {
+func (r *BTreeRepository) Update(table string, pk types.Value, row types.Row, txnID uint64) error {
 	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
-	if err := r.bt.Delete(schema.TableID, pk); err != nil {
+	if err := r.bt.Delete(schema.TableID, pk, txnID); err != nil {
 		return err
 	}
-	return r.bt.Insert(schema.TableID, pk, row, schema)
+	return r.bt.Insert(schema.TableID, pk, row, schema, txnID)
 }
 
 // Delete はPKでB+Treeからレコードを削除する。
-func (r *BTreeRepository) Delete(table string, pk types.Value) error {
+func (r *BTreeRepository) Delete(table string, pk types.Value, txnID uint64) error {
 	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
-	return r.bt.Delete(schema.TableID, pk)
+	return r.bt.Delete(schema.TableID, pk, txnID)
 }
 
 // schema はテーブル名からキャッシュ済みのスキーマを返す。未登録の場合はエラー。
