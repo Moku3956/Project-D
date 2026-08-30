@@ -10,6 +10,7 @@ import (
 	"github.com/Moku3956/Project-D/executor"
 	"github.com/Moku3956/Project-D/infrastructure"
 	"github.com/Moku3956/Project-D/sql/planner"
+	"github.com/Moku3956/Project-D/storage/btree"
 	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
@@ -40,6 +41,10 @@ func main() {
 		log.Fatalf("WALManager の初期化に失敗: %v", err)
 	}
 	defer wm.Close() //nolint:errcheck
+
+	if err := btree.Recover(dm, wm); err != nil {
+		log.Fatalf("クラッシュ復旧に失敗: %v", err)
+	}
 
 	cat, err := catalog.NewCatalog(catalogPath)
 	if err != nil {
