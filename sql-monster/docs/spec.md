@@ -8,10 +8,21 @@ SQLでモンスターを分析し、SQLで攻撃・防御する対戦ゲーム�
 
 ## アーキテクチャ
 
-Project-DをGoライブラリとして直接importする(HTTP API経由ではない)。理由は2つ。
+**Project-Dの内部パッケージ(`executor`/`planner`/`txn`など)を`sql-monster`が直接importすることはしない。** 内部実装に直接手を突っ込む形になり、既存DBMSの使われ方(ワイヤープロトコルや公開C API越しにしか触らない)とズレるため。
 
-1. **実行計画を実行前に見る必要がある** — `IndexScan`か`SequentialScan`かの判定に`planner.Plan(stmt)`が返す`PlanNode`を直接見る必要があり、既存のHTTP APIはこの情報を返さない。
-2. **本物のトランザクション制御が要る** — 攻撃時に「トランザクション内で実行→実測→リソース超過ならROLLBACK」という制御を行うため、`txn.Manager`のBegin/Commit/Rollbackを外部から直接呼ぶ必要がある。既存のHTTP APIは1リクエスト=1文=自動コミット固定でこれができない。
+代わりに、**Project-D側に新しく公開用の`client`パッケージ(仮称)を新設し、`sql-monster`はそれだけをimportする。**SQLiteが同一プロセス内で動きつつも公開されたCのAPIしか外部に見せないのと同じ考え方。
+
+```go
+db, err := client.Open(path)
+tx, err := db.Begin()
+result, err := tx.Exec(sql)   // Result に実行計画の情報(IndexScanだったか等)を含める
+err = tx.Commit()
+err = tx.Rollback()
+```
+
+HTTP API(`api/`)を拡張して複数リクエストにまたがる`BEGIN`/`COMMIT`を実現する案も検討したが、そのためには「誰のトランザクションかをリクエストをまたいで覚えておく」セッション管理が新たに必要になり(以前、自動コミット方式を選んだ際に保留にした問題)、`sql-monster`が同一プロセス内のGoプログラムとして動く前提なら不要な複雑さになるため見送った。
+
+**`client`パッケージの新設はProject-Dコア側の作業であり、`sql-monster`固有の話ではない。** `sql-monster`の実装より先に着手する必要がある。
 
 `sql-monster`はGoパッケージとして`planner`/`executor`/`txn`を直接importし、その上に独自のHTTP API(フロントエンド向け)を被せる二層構成にする。
 

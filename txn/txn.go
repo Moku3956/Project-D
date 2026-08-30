@@ -124,6 +124,9 @@ func (m *Manager) Rollback(txn *Txn) error {
 	if err != nil {
 		return err
 	}
+	if err := m.bp.DiscardTxn(txn.ID); err != nil {
+		return err
+	}
 	txn.State = StateAborted
 	m.unlock(txn)
 	return nil

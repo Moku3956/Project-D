@@ -127,6 +127,31 @@ func (bp *BufferPool) FlushAll(committedTxns map[uint64]bool) error {
 	return nil
 }
 
+// DiscardTxn は指定したtxnIDのdirtyフレームを破棄し、ディスクの内容で読み直す。
+// No-Stealによりdirtyページはコミットされるまでディスクに書かれていないため、
+// 読み直すことで変更前の状態に戻せる(Undo)。Rollback時に呼ぶ想定。
+// 対象フレームがpin中(まだ誰かが使用中)の場合はエラーを返す。
+func (bp *BufferPool) DiscardTxn(txnID uint64) error {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+
+	for pageID, f := range bp.frames {
+		if !f.isDirty || f.txnID != txnID {
+			continue
+		}
+		if f.pinCount > 0 {
+			return fmt.Errorf("buffer pool: cannot discard pinned page %d", pageID)
+		}
+		p, err := bp.disk.ReadPage(pageID)
+		if err != nil {
+			return err
+		}
+		f.p = p
+		f.isDirty = false
+	}
+	return nil
+}
+
 // evict はNo-Steal制約を守りながらLRUページを追い出す。
 func (bp *BufferPool) evict() error {
 	for elem := bp.lru.Back(); elem != nil; elem = elem.Prev() {
