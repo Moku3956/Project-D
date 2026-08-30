@@ -5,9 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/page"
+	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/types"
 )
+
+const scaleTxnID = uint64(1)
 
 // scaleSchema はページ分割をまたぐ規模のテスト用スキーマを返す。
 func scaleSchema() *types.Schema {
@@ -23,12 +27,19 @@ func scaleSchema() *types.Schema {
 // newScaleTree はテスト用のB+Treeを一時ディレクトリ上に構築する。
 func newScaleTree(t *testing.T) *BTree {
 	t.Helper()
-	dm, err := page.NewDiskManager(filepath.Join(t.TempDir(), "t.db"))
+	dir := t.TempDir()
+	dm, err := page.NewDiskManager(filepath.Join(dir, "t.db"))
 	if err != nil {
 		t.Fatalf("NewDiskManager: %v", err)
 	}
 	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
-	bt, err := NewBTree(dm)
+	wm, err := wal.NewWALManager(filepath.Join(dir, "t.wal"))
+	if err != nil {
+		t.Fatalf("NewWALManager: %v", err)
+	}
+	t.Cleanup(func() { wm.Close() }) //nolint:errcheck
+	bp := buffer.NewBufferPool(dm, wm, 200)
+	bt, err := NewBTree(dm, bp, wm)
 	if err != nil {
 		t.Fatalf("NewBTree: %v", err)
 	}
@@ -41,7 +52,7 @@ func insertN(t *testing.T, bt *BTree, sc *types.Schema, ids []int) {
 	for _, v := range ids {
 		id := int64(v)
 		row := types.Row{Values: []types.Value{types.IntValue{V: id}, types.StringValue{V: "u"}}}
-		if err := bt.Insert(1, types.IntValue{V: id}, row, sc); err != nil {
+		if err := bt.Insert(1, types.IntValue{V: id}, row, sc, scaleTxnID); err != nil {
 			t.Fatalf("Insert(%d): %v", id, err)
 		}
 	}

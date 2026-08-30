@@ -2,10 +2,16 @@ package executor
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Moku3956/Project-D/sql/parser"
 	"github.com/Moku3956/Project-D/sql/planner"
+	"github.com/Moku3956/Project-D/storage/buffer"
+	"github.com/Moku3956/Project-D/storage/page"
+	"github.com/Moku3956/Project-D/storage/wal"
+	"github.com/Moku3956/Project-D/txn"
 	"github.com/Moku3956/Project-D/types"
 )
 
@@ -91,12 +97,12 @@ func (r *mockRepo) FindByPK(table string, pk types.Value) (*types.Row, error) {
 	return nil, nil
 }
 
-func (r *mockRepo) Insert(table string, row types.Row) error {
+func (r *mockRepo) Insert(table string, row types.Row, txnID uint64) error {
 	r.data[table] = append(r.data[table], row)
 	return nil
 }
 
-func (r *mockRepo) Update(table string, pk types.Value, row types.Row) error {
+func (r *mockRepo) Update(table string, pk types.Value, row types.Row, txnID uint64) error {
 	schema, ok := r.schemas[table]
 	if !ok {
 		return fmt.Errorf("table %q not found", table)
@@ -111,7 +117,7 @@ func (r *mockRepo) Update(table string, pk types.Value, row types.Row) error {
 	return fmt.Errorf("record not found")
 }
 
-func (r *mockRepo) Delete(table string, pk types.Value) error {
+func (r *mockRepo) Delete(table string, pk types.Value, txnID uint64) error {
 	schema, ok := r.schemas[table]
 	if !ok {
 		return fmt.Errorf("table %q not found", table)
@@ -129,10 +135,25 @@ func (r *mockRepo) Delete(table string, pk types.Value) error {
 // ---- ヘルパー ----
 
 // setup はテスト用のカタログ・リポジトリ・Engineを生成する。
-func setup() (*mockCatalog, *mockRepo, *Engine) {
+// mockRepoはバッファプールを経由しないが、txn.Managerのコミット時FlushAllが
+// 参照するため実物を用意する。
+func setup(t *testing.T) (*mockCatalog, *mockRepo, *Engine) {
+	t.Helper()
 	cat := newMockCatalog()
 	repo := newMockRepo()
-	eng := NewEngine(repo, cat)
+	dir := t.TempDir()
+	dm, err := page.NewDiskManager(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewDiskManager error: %v", err)
+	}
+	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
+	wm, err := wal.NewWALManager(filepath.Join(dir, "test.wal"))
+	if err != nil {
+		t.Fatalf("NewWALManager error: %v", err)
+	}
+	t.Cleanup(func() { wm.Close() }) //nolint:errcheck
+	bp := buffer.NewBufferPool(dm, wm, 100)
+	eng := NewEngine(repo, cat, txn.NewManager(wm, bp))
 	return cat, repo, eng
 }
 
@@ -174,7 +195,7 @@ func runErr(t *testing.T, cat *mockCatalog, repo *mockRepo, eng *Engine, sql str
 // ---- 正常系 ----
 
 func TestExecuteCreateTable(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 
 	if !cat.TableExists("users") {
@@ -186,7 +207,7 @@ func TestExecuteCreateTable(t *testing.T) {
 }
 
 func TestExecuteInsert(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 
@@ -196,7 +217,7 @@ func TestExecuteInsert(t *testing.T) {
 }
 
 func TestExecuteSelect(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
@@ -208,7 +229,7 @@ func TestExecuteSelect(t *testing.T) {
 }
 
 func TestExecuteSelectWhere(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
@@ -223,7 +244,7 @@ func TestExecuteSelectWhere(t *testing.T) {
 }
 
 func TestExecuteSelectIndexScan(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
@@ -239,7 +260,7 @@ func TestExecuteSelectIndexScan(t *testing.T) {
 }
 
 func TestExecuteUpdate(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 	run(t, cat, repo, eng, "UPDATE users SET name = 'Bob' WHERE id = 1")
@@ -254,7 +275,7 @@ func TestExecuteUpdate(t *testing.T) {
 }
 
 func TestExecuteDelete(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
@@ -270,7 +291,7 @@ func TestExecuteDelete(t *testing.T) {
 }
 
 func TestExecuteSelectOrderByLimit(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
 	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
@@ -289,7 +310,7 @@ func TestExecuteSelectOrderByLimit(t *testing.T) {
 }
 
 func TestExecuteDropTable(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	run(t, cat, repo, eng, "DROP TABLE users")
 
@@ -298,8 +319,61 @@ func TestExecuteDropTable(t *testing.T) {
 	}
 }
 
+// TestExecuteConcurrentUpdateSerializes は、同じテーブルへの書き込みロックを外部で
+// 保持している間、UPDATEがブロックされ、解放後に実行されることを確認する。
+func TestExecuteConcurrentUpdateSerializes(t *testing.T) {
+	cat, repo, eng := setup(t)
+	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
+
+	holder := eng.txnMgr.Begin()
+	if err := eng.txnMgr.Lock(holder, "users"); err != nil {
+		t.Fatalf("Lock error: %v", err)
+	}
+
+	stmt, err := parser.Parse("UPDATE users SET name = 'Bob' WHERE id = 1")
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	pl := planner.NewPlanner(cat)
+	node, err := pl.Plan(stmt)
+	if err != nil {
+		t.Fatalf("plan error: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := eng.Execute(node)
+		done <- err
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("ロックを保持しているのにUPDATEが完了してしまった")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := eng.txnMgr.Commit(holder); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Execute error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ロック解放後もUPDATEが完了しなかった")
+	}
+
+	result := run(t, cat, repo, eng, "SELECT * FROM users")
+	if result.Rows[0].Values[1] != (types.StringValue{V: "Bob"}) {
+		t.Errorf("name = %v, want Bob", result.Rows[0].Values[1])
+	}
+}
+
 func TestExecuteBeginCommitRollback(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	for _, sql := range []string{"BEGIN", "COMMIT", "ROLLBACK"} {
 		result := run(t, cat, repo, eng, sql)
 		if result == nil {
@@ -311,7 +385,7 @@ func TestExecuteBeginCommitRollback(t *testing.T) {
 // ---- 異常系 ----
 
 func TestExecuteSelectTableNotFound(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	err := runErr(t, cat, repo, eng, "SELECT * FROM users")
 	if err == nil {
 		t.Fatal("エラーが期待されたが nil")
@@ -319,7 +393,7 @@ func TestExecuteSelectTableNotFound(t *testing.T) {
 }
 
 func TestExecuteInsertColumnCountMismatch(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 	err := runErr(t, cat, repo, eng, "INSERT INTO users VALUES (1)")
 	if err == nil {
@@ -328,7 +402,7 @@ func TestExecuteInsertColumnCountMismatch(t *testing.T) {
 }
 
 func TestExecuteDropTableNotFound(t *testing.T) {
-	cat, repo, eng := setup()
+	cat, repo, eng := setup(t)
 	err := runErr(t, cat, repo, eng, "DROP TABLE users")
 	if err == nil {
 		t.Fatal("エラーが期待されたが nil")

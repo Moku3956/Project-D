@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Moku3956/Project-D/storage/buffer"
 	"github.com/Moku3956/Project-D/storage/wal"
 )
 
@@ -28,16 +29,18 @@ type Txn struct {
 
 // Manager はトランザクションのライフサイクルとテーブルロックを管理する。
 type Manager struct {
-	wm       *wal.WALManager
+	wm        *wal.WALManager
+	bp        *buffer.BufferPool
 	nextTxnID atomic.Uint64
 
 	mu         sync.Mutex // muはテーブルマップ自体をロック
 	tableLocks map[string]*sync.RWMutex // tableLocksはテーブルマップにアクセスをして、ロック
 }
 
-func NewManager(wm *wal.WALManager) *Manager {
+func NewManager(wm *wal.WALManager, bp *buffer.BufferPool) *Manager {
 	return &Manager{
 		wm:         wm,
+		bp:         bp,
 		tableLocks: make(map[string]*sync.RWMutex),
 	}
 }
@@ -97,6 +100,10 @@ func (m *Manager) Commit(txn *Txn) error {
 		return err
 	}
 	if err := m.wm.Flush(); err != nil {
+		return err
+	}
+	// このトランザクションが汚したページだけをディスクへ反映する(No-Force。他txnの未コミットdirtyには触れない)。
+	if err := m.bp.FlushAll(map[uint64]bool{txn.ID: true}); err != nil {
 		return err
 	}
 	txn.State = StateCommitted

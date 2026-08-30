@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Moku3956/Project-D/storage/buffer"
+	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
 )
 
@@ -13,12 +15,18 @@ import (
 
 func newManager(t *testing.T) *Manager {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "wal.log")
-	wm, err := wal.NewWALManager(path)
+	dir := t.TempDir()
+	dm, err := page.NewDiskManager(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("NewDiskManager error: %v", err)
+	}
+	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
+	wm, err := wal.NewWALManager(filepath.Join(dir, "wal.log"))
 	if err != nil {
 		t.Fatalf("NewWALManager error: %v", err)
 	}
-	return NewManager(wm)
+	bp := buffer.NewBufferPool(dm, wm, 100)
+	return NewManager(wm, bp)
 }
 
 // ---- 正常系 ----
