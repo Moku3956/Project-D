@@ -18,7 +18,7 @@ type frame struct {
 	lruElem  *list.Element
 }
 
-// BufferPool はページのメモリキャッシュ。LRU + No-Steal。
+// BufferPool はページを保持するバッファプール。LRU + No-Steal。
 type BufferPool struct {
 	mu      sync.Mutex
 	disk    *page.DiskManager
@@ -38,7 +38,7 @@ func NewBufferPool(disk *page.DiskManager, wm *wal.WALManager, maxSize int) *Buf
 	}
 }
 
-// FetchPage はpageIDのページをキャッシュまたはディスクから取得する。
+// FetchPage はpageIDのページをバッファプールまたはディスクから取得する。
 // 呼び出し元はUnpinPageで解放する責任を持つ。
 func (bp *BufferPool) FetchPage(pageID uint32) (*page.Page, error) {
 	bp.mu.Lock()

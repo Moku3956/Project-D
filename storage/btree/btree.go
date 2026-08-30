@@ -128,9 +128,7 @@ func (bt *BTree) Scan(tableID uint32, schema *types.Schema) ([]types.Row, error)
 
 // --- 内部実装 ---
 
-// finishPage はページの変更をWALにRedoログとして記録し、バッファプール上でdirtyにする。
-// ディスクへの実書き込みはコミット時まで行わない(No-Steal)。WAL追記に失敗した場合は
-// 変更を破棄扱いでアンピンする。
+// finishPageはログをwm.bufに保存し、bp上でisDirtyにする。
 func (bt *BTree) finishPage(p *page.Page, txnID uint64, op wal.Operation) error {
 	lsn, err := bt.wm.Append(&wal.LogRecord{
 		TxnID:    txnID,
