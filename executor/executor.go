@@ -54,8 +54,7 @@ func NewEngine(repo TableRepository, catalog catalogReader, txnMgr *txn.Manager)
 	return &Engine{repo: repo, catalog: catalog, txnMgr: txnMgr}
 }
 
-// Execute はプランノードを受け取り、SQLを実行して結果を返す。
-// SELECT/INSERT/UPDATE/DELETEは1文=1トランザクションとして自動コミットする。
+// Execute はSQLを1文=1トランザクションの自動コミットで実行する。
 func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 	if result, handled, err := e.executeDDLOrTxnMarker(node); handled {
 		return result, err
@@ -73,10 +72,7 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 	return result, nil
 }
 
-// ExecuteInTxn は呼び出し元が開始・管理する既存のトランザクションtの中でnodeを実行する。
-// Executeと異なりコミット/ロールバックは行わない(呼び出し元の責任)。tはDDLや
-// BEGIN/COMMIT/ROLLBACK文では使われないため、その場合はnilで呼んでよい。
-// client パッケージが複数文にまたがるトランザクションを組み立てるために使う。
+// ExecuteInTxn はtの中でSQLを実行する。コミット/ロールバックは呼び出し元の責任。
 func (e *Engine) ExecuteInTxn(t *txn.Txn, node planner.PlanNode) (*Result, error) {
 	if result, handled, err := e.executeDDLOrTxnMarker(node); handled {
 		return result, err
@@ -84,8 +80,7 @@ func (e *Engine) ExecuteInTxn(t *txn.Txn, node planner.PlanNode) (*Result, error
 	return e.execLockedInTxn(t, node)
 }
 
-// executeDDLOrTxnMarker はトランザクションを必要としないノード(DDL・BEGIN/COMMIT/ROLLBACK)を
-// 処理する。handled=trueなら呼び出し元はresult, errをそのまま返してよい。
+// executeDDLOrTxnMarker はトランザクション不要なノード(DDL・BEGIN/COMMIT/ROLLBACK)を処理する。
 func (e *Engine) executeDDLOrTxnMarker(node planner.PlanNode) (result *Result, handled bool, err error) {
 	switch n := node.(type) {
 	case *planner.CreateTableNode:
