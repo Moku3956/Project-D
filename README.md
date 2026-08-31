@@ -1,12 +1,18 @@
 # Project-D
 
-GoでゼロからDBMSを自作するプロジェクト。SQLを実行したときにDBMSの内部で何が起きているかを可視化するSQL学習サイトと、スタンドアロンのDBMSライブラリの2つを兼ねる。
+GoでゼロからDBMSを自作するモノレポ。DBMSコア本体と、それを使う2つのアプリ(SQL学習サイト・SQLで戦うゲーム)で構成する。
 
 ---
 
 ## 目的
 
-既存のSQL学習サービスはSQLの書き方は教えてくれるが、「なぜそう動くのか」「内部でどう処理されているのか」は教えてくれない。本プロジェクトはSQLがパースされてからディスクに書き込まれるまでの全ステップをブラウザ上で可視化することで、DBMSの仕組みを直感的に理解できるようにする。
+既存のSQL学習サービスはSQLの書き方は教えてくれるが、「なぜそう動くのか」「内部でどう処理されているのか」は教えてくれない。本プロジェクトはSQLがパースされてからディスクに書き込まれるまでの全ステップを可視化・体験させることで、DBMSの仕組みを直感的に理解できるようにする。
+
+## 構成
+
+- **DBMSコア**(リポジトリ直下の各パッケージ) — SQLの実行・データの永続化を担う。`client`パッケージ経由でGoプログラムから利用できる
+- **`db-internal-app/`** — DBMSコアをバックエンドに、SQL実行時の内部処理(字句解析〜ストレージ書き込み)をブラウザ上でリアルタイムに可視化する学習サイト(設計中)
+- **`sql-monster/`** — SQLでモンスターを分析・攻撃・防御する対戦ゲーム(設計中、詳細は`sql-monster/docs/spec.md`)
 
 ---
 
@@ -39,23 +45,37 @@ SQLの処理はパイプラインとして実装されている。
 SQL文字列
   → Lexer   : トークン列に分解
   → Parser  : ASTに変換
-  → Planner : プランツリーを生成
-  → Executor: データを読み書きして結果を返す
+  → Planner : プランツリーを生成(実行計画の選択もここ)
+  → Executor: データを読み書きして結果を返す(Volcanoモデル)
   → Storage : B+Tree / WAL / Buffer Pool
+```
+
+`sql-monster`のような外部Goプログラムは、`executor`/`planner`/`txn`などの内部パッケージを直接importせず、`client`パッケージ経由でのみDBMSコアを利用する。
+
+```go
+db, err := client.Open(dir)
+result, err := db.Exec(sql)   // 1文=1トランザクション自動コミット
+
+tx := db.Begin()
+result, err := tx.Exec(sql)
+err = tx.Commit()             // または tx.Rollback()
 ```
 
 ### ディレクトリ構成
 
 ```
-├── types/      # 共有型（Value / Row / Column / Schema）
-├── catalog/    # スキーマ管理（catalog.json）
-├── sql/        # Lexer / Parser / AST / Planner
-├── executor/   # Volcano モデルの実行エンジン
-├── txn/        # トランザクション管理
-├── storage/    # B+Tree / WAL / Buffer Pool
-├── server/     # 可視化用REST APIサーバー
-├── frontend/   # React フロントエンド
-└── cmd/        # エントリポイント
+├── types/           # 共有型（Value / Row / Column / Schema）
+├── catalog/         # スキーマ管理（catalog.json）
+├── sql/             # Lexer / Parser / AST / Planner
+├── executor/        # Volcano モデルの実行エンジン
+├── txn/             # トランザクション管理（ロック・WAL連携）
+├── storage/         # B+Tree / WAL / Buffer Pool
+├── infrastructure/  # executorのTableRepositoryをB+Treeで実装
+├── client/          # 外部プログラム向けの公開API
+├── api/             # HTTPハンドラ（POST /query, GET /health）
+├── cmd/server/      # HTTPサーバーのエントリポイント
+├── db-internal-app/ # DBMS内部可視化アプリ（設計中）
+└── sql-monster/     # SQL対戦ゲーム（設計中）
 ```
 
 ---

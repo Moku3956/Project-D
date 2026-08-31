@@ -228,7 +228,100 @@ func TestEvictLRU(t *testing.T) {
 	}
 }
 
+// DiscardTxnが指定txnIDのdirtyページをディスクの内容(=変更前)で読み直すことを確認する。
+func TestDiscardTxnRevertsChange(t *testing.T) {
+	bp, cleanup := setupPool(t, 10)
+	defer cleanup()
+
+	p, err := bp.disk.AllocatePage(page.TypeLeaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageID := p.PageID()
+
+	fetched, err := bp.FetchPage(pageID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched.SetLSN(99)
+	bp.UnpinPage(pageID, true, 1) // txnID=1がdirtyにする
+
+	if err := bp.DiscardTxn(1); err != nil {
+		t.Fatalf("DiscardTxn: %v", err)
+	}
+
+	f := bp.frames[pageID]
+	if f.isDirty {
+		t.Error("DiscardTxn後もisDirtyがtrueのまま")
+	}
+	if f.p.LSN() != 0 {
+		t.Errorf("DiscardTxn後のLSN = %d, want 0(ディスク上の変更前の状態)", f.p.LSN())
+	}
+}
+
+// DiscardTxnが他のtxnIDのdirtyページには触れないことを確認する。
+func TestDiscardTxnOnlyAffectsGivenTxn(t *testing.T) {
+	bp, cleanup := setupPool(t, 10)
+	defer cleanup()
+
+	p0, err := bp.disk.AllocatePage(page.TypeLeaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p1, err := bp.disk.AllocatePage(page.TypeLeaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f0, err := bp.FetchPage(p0.PageID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f0.SetLSN(10)
+	bp.UnpinPage(p0.PageID(), true, 1) // txnID=1
+
+	f1, err := bp.FetchPage(p1.PageID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f1.SetLSN(20)
+	bp.UnpinPage(p1.PageID(), true, 2) // txnID=2
+
+	if err := bp.DiscardTxn(1); err != nil {
+		t.Fatalf("DiscardTxn: %v", err)
+	}
+
+	if bp.frames[p0.PageID()].isDirty {
+		t.Error("txnID=1のページが破棄されていない")
+	}
+	if !bp.frames[p1.PageID()].isDirty {
+		t.Error("txnID=2のページまで破棄されてしまった")
+	}
+}
+
 // ---- 異常系 ----
+
+func TestDiscardTxnFailsWhenPinned(t *testing.T) {
+	bp, cleanup := setupPool(t, 10)
+	defer cleanup()
+
+	p, err := bp.disk.AllocatePage(page.TypeLeaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageID := p.PageID()
+
+	// pinしたまま(UnpinPageを呼ばない)dirtyにする
+	if _, err := bp.FetchPage(pageID); err != nil {
+		t.Fatal(err)
+	}
+	bp.frames[pageID].isDirty = true
+	bp.frames[pageID].txnID = 1
+
+	if err := bp.DiscardTxn(1); err == nil {
+		t.Error("pin中のページをDiscardTxnしてもエラーが返らなかった")
+	}
+}
 
 func TestEvictFailsWhenAllPinned(t *testing.T) {
 	bp, cleanup := setupPool(t, 1)

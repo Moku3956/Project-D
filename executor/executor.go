@@ -54,45 +54,14 @@ func NewEngine(repo TableRepository, catalog catalogReader, txnMgr *txn.Manager)
 	return &Engine{repo: repo, catalog: catalog, txnMgr: txnMgr}
 }
 
-// Execute はプランノードを受け取り、SQLを実行して結果を返す。
-// SELECT/INSERT/UPDATE/DELETEは1文=1トランザクションとして自動コミットする。
+// Execute はSQLを1文=1トランザクションの自動コミットで実行する。
 func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
-	switch n := node.(type) {
-	case *planner.CreateTableNode:
-		schema := types.Schema{
-			TableName: n.Stmt.TableName,
-			Columns:   n.Stmt.Columns,
-		}
-		if err := e.catalog.CreateTable(schema); err != nil {
-			return nil, err
-		}
-		// TableID が付与されたスキーマをカタログから取得して登録する
-		assigned, err := e.catalog.GetSchema(schema.TableName)
-		if err != nil {
-			return nil, err
-		}
-		if err := e.repo.OpenTable(schema.TableName, assigned); err != nil {
-			return nil, err
-		}
-		return &Result{}, nil
-
-	case *planner.DropTableNode:
-		if err := e.catalog.DropTable(n.TableName); err != nil {
-			return nil, err
-		}
-		return &Result{}, nil
-
-	case *planner.BeginNode, *planner.CommitNode, *planner.RollbackNode:
-		return &Result{}, nil
+	if result, handled, err := e.executeDDLOrTxnMarker(node); handled {
+		return result, err
 	}
 
 	t := e.txnMgr.Begin()
-	if err := e.lockFor(t, node); err != nil {
-		_ = e.txnMgr.Rollback(t)
-		return nil, err
-	}
-
-	result, err := e.executeLocked(node, t.ID)
+	result, err := e.execLockedInTxn(t, node)
 	if err != nil {
 		_ = e.txnMgr.Rollback(t)
 		return nil, err
@@ -101,6 +70,55 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+// ExecuteInTxn はtの中でSQLを実行する。コミット/ロールバックは呼び出し元の責任。
+func (e *Engine) ExecuteInTxn(t *txn.Txn, node planner.PlanNode) (*Result, error) {
+	if result, handled, err := e.executeDDLOrTxnMarker(node); handled {
+		return result, err
+	}
+	return e.execLockedInTxn(t, node)
+}
+
+// executeDDLOrTxnMarker はトランザクション不要なノード(DDL・BEGIN/COMMIT/ROLLBACK)を処理する。
+func (e *Engine) executeDDLOrTxnMarker(node planner.PlanNode) (result *Result, handled bool, err error) {
+	switch n := node.(type) {
+	case *planner.CreateTableNode:
+		schema := types.Schema{
+			TableName: n.Stmt.TableName,
+			Columns:   n.Stmt.Columns,
+		}
+		if err := e.catalog.CreateTable(schema); err != nil {
+			return nil, true, err
+		}
+		// TableID が付与されたスキーマをカタログから取得して登録する
+		assigned, err := e.catalog.GetSchema(schema.TableName)
+		if err != nil {
+			return nil, true, err
+		}
+		if err := e.repo.OpenTable(schema.TableName, assigned); err != nil {
+			return nil, true, err
+		}
+		return &Result{}, true, nil
+
+	case *planner.DropTableNode:
+		if err := e.catalog.DropTable(n.TableName); err != nil {
+			return nil, true, err
+		}
+		return &Result{}, true, nil
+
+	case *planner.BeginNode, *planner.CommitNode, *planner.RollbackNode:
+		return &Result{}, true, nil
+	}
+	return nil, false, nil
+}
+
+// execLockedInTxn はtでロックを取得してnodeを実行する。
+func (e *Engine) execLockedInTxn(t *txn.Txn, node planner.PlanNode) (*Result, error) {
+	if err := e.lockFor(t, node); err != nil {
+		return nil, err
+	}
+	return e.executeLocked(node, t.ID)
 }
 
 // lockFor はノードが読み書きするテーブルのロックを取得する。(読み込みと書き込みクエリのロックを分ける)

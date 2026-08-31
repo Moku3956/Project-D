@@ -17,6 +17,7 @@ Server env vars (all optional, see `cmd/server/main.go`): `DB_PATH`, `WAL_PATH`,
 
 ## Git workflow
 
+- **Never commit directly to `stage` or `main`.** Always create a new branch off `stage` before starting work, even for small changes.
 - **Branch off `stage`, not `main`.** `stage` is the active integration branch (currently ~50 commits ahead of `main`); PRs target `stage`. `main` is updated separately/less often and should not be assumed current.
 - **Branch naming**: `<type>/<short-name>`, e.g. `feature/storage`, `feature/txn`, `conf/docker`.
 - **Commit message prefix**: `<prefix>: <Japanese summary>`, prefix one of `feat:` (also seen as `feature:`), `fix:`, `test:`, `docs:`, `chore:`, `ref:` (refactor). Not every historical commit has a prefix, but new commits should use one.
