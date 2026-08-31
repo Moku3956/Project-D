@@ -158,7 +158,7 @@ func setup(t *testing.T) (*mockCatalog, *mockRepo, *Engine) {
 }
 
 // run はSQL文字列をParse→Plan→Executeして結果を返す。エラーがあればt.Fatalする。
-func run(t *testing.T, cat *mockCatalog, repo *mockRepo, eng *Engine, sql string) *Result {
+func run(t *testing.T, cat *mockCatalog, eng *Engine, sql string) *Result {
 	t.Helper()
 	stmt, err := parser.Parse(sql)
 	if err != nil {
@@ -177,7 +177,7 @@ func run(t *testing.T, cat *mockCatalog, repo *mockRepo, eng *Engine, sql string
 }
 
 // runErr はSQL文字列をParse→Plan→Executeしてエラーを返す。
-func runErr(t *testing.T, cat *mockCatalog, repo *mockRepo, eng *Engine, sql string) error {
+func runErr(t *testing.T, cat *mockCatalog, eng *Engine, sql string) error {
 	t.Helper()
 	stmt, err := parser.Parse(sql)
 	if err != nil {
@@ -196,7 +196,7 @@ func runErr(t *testing.T, cat *mockCatalog, repo *mockRepo, eng *Engine, sql str
 
 func TestExecuteCreateTable(t *testing.T) {
 	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
 
 	if !cat.TableExists("users") {
 		t.Error("カタログにusersが登録されていない")
@@ -208,8 +208,8 @@ func TestExecuteCreateTable(t *testing.T) {
 
 func TestExecuteInsert(t *testing.T) {
 	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
 
 	if len(repo.data["users"]) != 1 {
 		t.Fatalf("レコード数 = %d, want 1", len(repo.data["users"]))
@@ -217,24 +217,24 @@ func TestExecuteInsert(t *testing.T) {
 }
 
 func TestExecuteSelect(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "INSERT INTO users VALUES (2, 'Bob')")
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users")
+	result := run(t, cat, eng, "SELECT * FROM users")
 	if len(result.Rows) != 2 {
 		t.Fatalf("レコード数 = %d, want 2", len(result.Rows))
 	}
 }
 
 func TestExecuteSelectWhere(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "INSERT INTO users VALUES (2, 'Bob')")
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users WHERE id = 2")
+	result := run(t, cat, eng, "SELECT * FROM users WHERE id = 2")
 	if len(result.Rows) != 1 {
 		t.Fatalf("レコード数 = %d, want 1", len(result.Rows))
 	}
@@ -244,13 +244,13 @@ func TestExecuteSelectWhere(t *testing.T) {
 }
 
 func TestExecuteSelectIndexScan(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (3, 'Carol')")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "INSERT INTO users VALUES (2, 'Bob')")
+	run(t, cat, eng, "INSERT INTO users VALUES (3, 'Carol')")
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users WHERE id = 2")
+	result := run(t, cat, eng, "SELECT * FROM users WHERE id = 2")
 	if len(result.Rows) != 1 {
 		t.Fatalf("レコード数 = %d, want 1", len(result.Rows))
 	}
@@ -260,12 +260,12 @@ func TestExecuteSelectIndexScan(t *testing.T) {
 }
 
 func TestExecuteUpdate(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
-	run(t, cat, repo, eng, "UPDATE users SET name = 'Bob' WHERE id = 1")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "UPDATE users SET name = 'Bob' WHERE id = 1")
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users")
+	result := run(t, cat, eng, "SELECT * FROM users")
 	if len(result.Rows) != 1 {
 		t.Fatalf("レコード数 = %d, want 1", len(result.Rows))
 	}
@@ -275,13 +275,13 @@ func TestExecuteUpdate(t *testing.T) {
 }
 
 func TestExecuteDelete(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
-	run(t, cat, repo, eng, "DELETE FROM users WHERE id = 1")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "INSERT INTO users VALUES (2, 'Bob')")
+	run(t, cat, eng, "DELETE FROM users WHERE id = 1")
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users")
+	result := run(t, cat, eng, "SELECT * FROM users")
 	if len(result.Rows) != 1 {
 		t.Fatalf("レコード数 = %d, want 1", len(result.Rows))
 	}
@@ -291,13 +291,13 @@ func TestExecuteDelete(t *testing.T) {
 }
 
 func TestExecuteSelectOrderByLimit(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (2, 'Bob')")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (3, 'Carol')")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	run(t, cat, eng, "INSERT INTO users VALUES (2, 'Bob')")
+	run(t, cat, eng, "INSERT INTO users VALUES (3, 'Carol')")
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users ORDER BY id DESC LIMIT 2")
+	result := run(t, cat, eng, "SELECT * FROM users ORDER BY id DESC LIMIT 2")
 	if len(result.Rows) != 2 {
 		t.Fatalf("レコード数 = %d, want 2", len(result.Rows))
 	}
@@ -310,9 +310,9 @@ func TestExecuteSelectOrderByLimit(t *testing.T) {
 }
 
 func TestExecuteDropTable(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "DROP TABLE users")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "DROP TABLE users")
 
 	if cat.TableExists("users") {
 		t.Error("カタログからusersが削除されていない")
@@ -322,9 +322,9 @@ func TestExecuteDropTable(t *testing.T) {
 // TestExecuteConcurrentUpdateSerializes は、同じテーブルへの書き込みロックを外部で
 // 保持している間、UPDATEがブロックされ、解放後に実行されることを確認する。
 func TestExecuteConcurrentUpdateSerializes(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	run(t, cat, repo, eng, "INSERT INTO users VALUES (1, 'Alice')")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
 
 	holder := eng.txnMgr.Begin()
 	if err := eng.txnMgr.Lock(holder, "users"); err != nil {
@@ -366,16 +366,16 @@ func TestExecuteConcurrentUpdateSerializes(t *testing.T) {
 		t.Fatal("ロック解放後もUPDATEが完了しなかった")
 	}
 
-	result := run(t, cat, repo, eng, "SELECT * FROM users")
+	result := run(t, cat, eng, "SELECT * FROM users")
 	if result.Rows[0].Values[1] != (types.StringValue{V: "Bob"}) {
 		t.Errorf("name = %v, want Bob", result.Rows[0].Values[1])
 	}
 }
 
 func TestExecuteBeginCommitRollback(t *testing.T) {
-	cat, repo, eng := setup(t)
+	cat, _, eng := setup(t)
 	for _, sql := range []string{"BEGIN", "COMMIT", "ROLLBACK"} {
-		result := run(t, cat, repo, eng, sql)
+		result := run(t, cat, eng, sql)
 		if result == nil {
 			t.Errorf("%s: result が nil", sql)
 		}
@@ -385,25 +385,25 @@ func TestExecuteBeginCommitRollback(t *testing.T) {
 // ---- 異常系 ----
 
 func TestExecuteSelectTableNotFound(t *testing.T) {
-	cat, repo, eng := setup(t)
-	err := runErr(t, cat, repo, eng, "SELECT * FROM users")
+	cat, _, eng := setup(t)
+	err := runErr(t, cat, eng, "SELECT * FROM users")
 	if err == nil {
 		t.Fatal("エラーが期待されたが nil")
 	}
 }
 
 func TestExecuteInsertColumnCountMismatch(t *testing.T) {
-	cat, repo, eng := setup(t)
-	run(t, cat, repo, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
-	err := runErr(t, cat, repo, eng, "INSERT INTO users VALUES (1)")
+	cat, _, eng := setup(t)
+	run(t, cat, eng, "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))")
+	err := runErr(t, cat, eng, "INSERT INTO users VALUES (1)")
 	if err == nil {
 		t.Fatal("エラーが期待されたが nil")
 	}
 }
 
 func TestExecuteDropTableNotFound(t *testing.T) {
-	cat, repo, eng := setup(t)
-	err := runErr(t, cat, repo, eng, "DROP TABLE users")
+	cat, _, eng := setup(t)
+	err := runErr(t, cat, eng, "DROP TABLE users")
 	if err == nil {
 		t.Fatal("エラーが期待されたが nil")
 	}
