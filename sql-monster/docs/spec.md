@@ -22,9 +22,9 @@ err = tx.Rollback()
 
 HTTP API(`api/`)を拡張して複数リクエストにまたがる`BEGIN`/`COMMIT`を実現する案も検討したが、そのためには「誰のトランザクションかをリクエストをまたいで覚えておく」セッション管理が新たに必要になり(以前、自動コミット方式を選んだ際に保留にした問題)、`sql-monster`が同一プロセス内のGoプログラムとして動く前提なら不要な複雑さになるため見送った。
 
-**`client`パッケージの新設はProject-Dコア側の作業であり、`sql-monster`固有の話ではない。** `sql-monster`の実装より先に着手する必要がある。
+**`client`パッケージの新設はProject-Dコア側の作業であり、`sql-monster`固有の話ではない。** 実装済み(PR #6)。
 
-`sql-monster`はGoパッケージとして`planner`/`executor`/`txn`を直接importし、その上に独自のHTTP API(フロントエンド向け)を被せる二層構成にする。
+`sql-monster`は`client`パッケージをimportし、その上に独自のHTTP API(フロントエンド向け)を被せる二層構成にする。パッケージ構成はコアの`cmd/server`に揃え、`sql-monster/internal/game/`(コアロジック)+`sql-monster/cmd/server/`(エントリポイント)とする。
 
 ---
 

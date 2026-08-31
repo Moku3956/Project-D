@@ -52,8 +52,12 @@ func (m *Manager) Begin() *Txn {
 	return &Txn{ID: id, State: StateActive}
 }
 
-// RLock はテーブルの読み取りロックを取得する。
+// RLock はテーブルの読み取りロックを取得する。txnが既にこのテーブルの読み取りまたは
+// 書き込みロックを保持していれば、再取得せずそのまま成功する(再入可能)。
 func (m *Manager) RLock(txn *Txn, table string) error {
+	if txn.holds("r:"+table) || txn.holds("w:"+table) {
+		return nil
+	}
 	mu := m.tableMu(table)
 	done := make(chan struct{})
 	// ロック処理をメインと分けて処理する。タイムアウト計測を行うため。
@@ -70,8 +74,16 @@ func (m *Manager) RLock(txn *Txn, table string) error {
 	}
 }
 
-// Lock はテーブルの書き込みロックを取得する。
+// Lock はテーブルの書き込みロックを取得する。txnが既にこのテーブルの書き込みロックを
+// 保持していれば、再取得せずそのまま成功する(再入可能)。読み取りロックからの
+// アップグレードは未対応(自己デッドロックするため、あればエラーを返す)。
 func (m *Manager) Lock(txn *Txn, table string) error {
+	if txn.holds("w:" + table) {
+		return nil
+	}
+	if txn.holds("r:" + table) {
+		return fmt.Errorf("txn %d: cannot upgrade read lock to write lock on table %q", txn.ID, table)
+	}
 	mu := m.tableMu(table)
 	done := make(chan struct{})
 	go func() {
@@ -85,6 +97,16 @@ func (m *Manager) Lock(txn *Txn, table string) error {
 	case <-time.After(lockTimeout):
 		return fmt.Errorf("txn %d: lock timeout on table %q", txn.ID, table)
 	}
+}
+
+// holds はtxnが指定のロックエントリ("r:table"や"w:table")を既に保持しているかを返す。
+func (txn *Txn) holds(entry string) bool {
+	for _, l := range txn.locks {
+		if l == entry {
+			return true
+		}
+	}
+	return false
 }
 
 // Commit はWALにCOMMITレコードを書いてfsyncし、ロックを解放する。
