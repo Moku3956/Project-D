@@ -31,8 +31,10 @@ go run ./sql-monster/cmd/server
 
 | 変数 | 既定値 | 説明 |
 |---|---|---|
-| `DATA_DIR` | `data` | DBファイル・WAL・カタログの置き場所 |
+| `DATA_DIR` | `sql-monster/data` | DBファイル・WAL・カタログの置き場所 |
 | `ADDR` | `:8081` | 待ち受けアドレス |
+
+`DATA_DIR`の既定値をリポジトリ直下の`data/`にしていないのは、そこがProject-D本体のサーバー(`cmd/server`)の置き場所だから。同じディレクトリを共有すると、片方のアプリが作ったDBファイルをもう片方が開いてしまう。
 
 ### 2. フロントエンド(Vite)
 
@@ -51,7 +53,7 @@ npm run dev
 進行状況(どのモンスターをクリアしたか)もDBに入っているので、まっさらにしたい場合はデータディレクトリごと消す。
 
 ```bash
-rm -rf data
+rm -rf sql-monster/data
 ```
 
 ## 遊び方

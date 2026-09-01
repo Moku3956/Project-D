@@ -13,7 +13,9 @@ import (
 )
 
 func main() {
-	dir := envOr("DATA_DIR", "data")
+	// Project-D本体のサーバー(cmd/server)が data/ を使うため、既定値を分けている。
+	// 同じディレクトリを共有すると、片方が書いたファイルをもう片方が読んでしまう。
+	dir := envOr("DATA_DIR", "sql-monster/data")
 	addr := envOr("ADDR", ":8081")
 
 	db, err := client.Open(dir)
