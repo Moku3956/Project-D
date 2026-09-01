@@ -61,6 +61,12 @@ func (b *Battle) NextTurn() error {
 // Resources は現在のリソース残量を返す。
 func (b *Battle) Resources() Resources { return b.res }
 
+// MaxResources は1ターンあたりのリソース上限を返す。
+func (b *Battle) MaxResources() Resources { return b.maxRes }
+
+// MonsterID は対戦相手のモンスターIDを返す。
+func (b *Battle) MonsterID() int64 { return b.monsterID }
+
 // AnalyzeWeakness はモンスターの弱点データに対するSELECTを実行する(①攻撃用分析)。
 func (b *Battle) AnalyzeWeakness(sql string) (*client.Result, error) {
 	return b.analyze(sql)

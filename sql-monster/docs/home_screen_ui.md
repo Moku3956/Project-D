@@ -4,6 +4,7 @@
 
 - Figmaファイル: https://www.figma.com/design/SYNd796ebb3ETGhECYVlFc/ (`sql-home-screen`フレーム)
 - ヘッダーはバトル画面のものをそのまま複製して流用(`SQL`バッジ + `SQL-MONSTER` + 三本線設定ボタン)。
+- フォントもバトル画面と共通(Orbitron / Space Mono。詳細は`battle_screen_ui.md`の「タイポグラフィ」)。
 
 ---
 

@@ -1,6 +1,20 @@
 # フロントエンド設計
 
-`battle_screen_ui.md` / `home_screen_ui.md`(Figma設計)を実装するにあたっての技術選定・アーキテクチャ方針。まだ実装前の決定事項のみで、コードはまだない。
+`battle_screen_ui.md` / `home_screen_ui.md`(Figma設計)を実装するにあたっての技術選定・アーキテクチャ方針。
+
+## 起動方法
+
+バックエンド(Go)とフロントエンド(Vite)を別々に立ち上げる。
+
+```bash
+# バックエンド(既定 :8081)。初回起動時にテーブル作成とモンスター6体の投入まで行う
+go run ./sql-monster/cmd/server
+
+# フロントエンド(:5173)。/api へのリクエストは上のサーバーにプロキシされる
+cd sql-monster/frontend && npm install && npm run dev
+```
+
+環境変数: `DATA_DIR`(既定 `data`)、`ADDR`(既定 `:8081`)。フロント側は `API_TARGET` でプロキシ先を変えられる。
 
 ---
 
@@ -12,6 +26,7 @@
 | ビルド/開発サーバー | Vite |
 | スタイリング | Tailwind CSS |
 | 状態管理 | Zustand(バトル中のフェーズ・リソースなど画面をまたぐ状態) |
+| フォント | Orbitron(見出し・表示系) / Space Mono(データ・コード・ラベル) — いずれもGoogle Fonts |
 
 
 ## フォルダ構成: フィーチャーベース

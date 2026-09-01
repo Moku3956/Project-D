@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Figmaデザイン(docs/battle_screen_ui.md, home_screen_ui.md)の配色・フォントをトークン化する */
+@theme {
+  --color-base: #07090e;
+  --color-panel: #0e131f;
+  --color-line: #253149;
+  --color-line-soft: #384662;
+
+  --color-neon: #00f0ff;
+  --color-amber: #ff9933;
+  --color-danger: #ff6666;
+  --color-done: #33d973;
+
+  --color-ink: #f1f5f9;
+  --color-muted: #94a3b8;
+  --color-faint: #66738a;
+
+  --font-display: "Orbitron", sans-serif;
+  --font-mono: "Space Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+}
+
+/* SQLエディタのtextarea。等幅・行間はコードとして読める設定にする */
+.sql-input {
+  font-family: var(--font-mono);
+  line-height: 1.7;
+  tab-size: 2;
+}
