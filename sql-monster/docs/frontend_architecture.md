@@ -2,19 +2,7 @@
 
 `battle_screen_ui.md` / `home_screen_ui.md`(Figma設計)を実装するにあたっての技術選定・アーキテクチャ方針。
 
-## 起動方法
-
-バックエンド(Go)とフロントエンド(Vite)を別々に立ち上げる。
-
-```bash
-# バックエンド(既定 :8081)。初回起動時にテーブル作成とモンスター6体の投入まで行う
-go run ./sql-monster/cmd/server
-
-# フロントエンド(:5173)。/api へのリクエストは上のサーバーにプロキシされる
-cd sql-monster/frontend && npm install && npm run dev
-```
-
-環境変数: `DATA_DIR`(既定 `data`)、`ADDR`(既定 `:8081`)。フロント側は `API_TARGET` でプロキシ先を変えられる。
+起動方法・遊び方は [`../README.md`](../README.md) を参照。
 
 ---
 
