@@ -22,9 +22,9 @@ err = tx.Rollback()
 
 HTTP API(`api/`)を拡張して複数リクエストにまたがる`BEGIN`/`COMMIT`を実現する案も検討したが、そのためには「誰のトランザクションかをリクエストをまたいで覚えておく」セッション管理が新たに必要になり(以前、自動コミット方式を選んだ際に保留にした問題)、`sql-monster`が同一プロセス内のGoプログラムとして動く前提なら不要な複雑さになるため見送った。
 
-**`client`パッケージの新設はProject-Dコア側の作業であり、`sql-monster`固有の話ではない。** `sql-monster`の実装より先に着手する必要がある。
+**`client`パッケージの新設はProject-Dコア側の作業であり、`sql-monster`固有の話ではない。** 実装済み(PR #6)。
 
-`sql-monster`はGoパッケージとして`planner`/`executor`/`txn`を直接importし、その上に独自のHTTP API(フロントエンド向け)を被せる二層構成にする。
+`sql-monster`は`client`パッケージをimportし、その上に独自のHTTP API(フロントエンド向け)を被せる二層構成にする。パッケージ構成はコアの`cmd/server`に揃え、`sql-monster/internal/game/`(コアロジック)+`sql-monster/cmd/server/`(エントリポイント)とする。
 
 ---
 
@@ -121,13 +121,14 @@ HTTP API(`api/`)を拡張して複数リクエストにまたがる`BEGIN`/`COMM
 
 プレイヤーのHPが0になったら敗北。モンスターのHPが0になったら勝利。
 
+**バトルの構成:** 1体のモンスターと決着がつくまでの対戦。連戦(複数体を順番に倒す構成)はしない。
+
 ---
 
 ## 未定事項
 
 - 状態異常(毒など)を`INSERT`で付与した後、ターンごとにどう効いてくるか(継続ダメージの自動処理)。スコープ外、将来実装したい。
 - 戦闘中の演出・言葉遣い(DBMS用語を出すか、ゲーム語彙に寄せるか)は未確定。
-- バトル全体の構成(1体と決着がつくまでか、連戦か)。
 - レベル別スキーマの難易度を何段階刻むか、具体的な数値・上限値。
 
 ---
@@ -136,3 +137,6 @@ HTTP API(`api/`)を拡張して複数リクエストにまたがる`BEGIN`/`COMM
 
 - クエリ効率判定の拡張ロードマップ(PK判定 → セカンダリインデックス → コストベース最適化): `project_issues.md`
 - Project-Dのアーキテクチャ全体: `/docs/architecture.md`, `/CLAUDE.md`
+- バトル画面のUI設計(Figma): `docs/battle_screen_ui.md`
+- ホーム画面のUI設計(Figma): `docs/home_screen_ui.md`
+- フロントエンド技術選定・API設計: `docs/frontend_architecture.md`

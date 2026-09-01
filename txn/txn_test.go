@@ -109,7 +109,73 @@ func TestRLockAndLock(t *testing.T) {
 	}
 }
 
+// 同じトランザクションが同じテーブルに対してLock→RLockと呼んでも、
+// 自己デッドロックせず即座に成功することを確認する(再入可能)。
+func TestLockThenRLockIsReentrant(t *testing.T) {
+	m := newManager(t)
+	txn := m.Begin()
+
+	if err := m.Lock(txn, "monsters"); err != nil {
+		t.Fatalf("Lock error: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- m.RLock(txn, "monsters")
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RLock error: %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("同じtxnからのRLockがブロックした(自己デッドロック)")
+	}
+
+	if err := m.Commit(txn); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
+}
+
+// 同じトランザクションが同じテーブルに対してRLock/Lockを複数回呼んでも
+// エントリが重複せず、Unlock回数が一致することを確認する。
+func TestRLockTwiceDoesNotDuplicateEntry(t *testing.T) {
+	m := newManager(t)
+	txn := m.Begin()
+
+	if err := m.RLock(txn, "monsters"); err != nil {
+		t.Fatalf("RLock error: %v", err)
+	}
+	if err := m.RLock(txn, "monsters"); err != nil {
+		t.Fatalf("RLock(2回目) error: %v", err)
+	}
+	if len(txn.locks) != 1 {
+		t.Errorf("locks = %v, want 1件", txn.locks)
+	}
+	if err := m.Commit(txn); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
+}
+
 // ---- 異常系 ----
+
+// 読み取りロックを保持したまま同じテーブルへの書き込みロックを要求すると、
+// アップグレード非対応のためエラーになることを確認する。
+func TestLockUpgradeFromRLockFails(t *testing.T) {
+	m := newManager(t)
+	txn := m.Begin()
+
+	if err := m.RLock(txn, "monsters"); err != nil {
+		t.Fatalf("RLock error: %v", err)
+	}
+	if err := m.Lock(txn, "monsters"); err == nil {
+		t.Fatal("読み取りロックからのアップグレードでエラーが期待されたがnil")
+	}
+	if err := m.Rollback(txn); err != nil {
+		t.Fatalf("Rollback error: %v", err)
+	}
+}
 
 func TestCommitNotActive(t *testing.T) {
 	m := newManager(t)
