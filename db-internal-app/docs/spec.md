@@ -24,11 +24,15 @@ Figmaのモックアップ自体は5ステージ分とも残すが、**実装フ
 
 B+Treeのページ/ノード単位のツリー図まで見せる(ユーザー確定済み)。当初「splitやinsertの過程をフック/トレースで逐次記録する」案も考えたが、`storage/btree`は本体サーバー・sql-monster双方が使う共有エンジンであり、そこにトレース用のフックを埋め込むのは挙動・性能両面でリスクが高い。
 
-代わりに、**クエリ実行の前後でB+Treeの全ページを`RootPageID`からルートダウンに辿って読み、シリアライズ可能なツリー構造(ページID・種別・キー一覧・子ページID一覧)にダンプする、新規の読み取り専用関数**を`storage/btree`に追加する(既存の`Search`/`Insert`/`Delete`/`Scan`には一切手を入れない)。フロントエンドは実行前後のダンプを見比べて「どのページが変わったか(分割が起きたか等)」を表示する。ページ内部(スロット配列・セルバイト列)まで見せるかは次項参照。
+代わりに、**クエリ実行の前後でB+Treeの全ページを`RootPageID`からルートダウンに辿って読み、シリアライズ可能なツリー構造(ページID・種別・キー一覧・子ページID一覧)にダンプする、新規の読み取り専用メソッド**を`storage/btree`に追加する(既存の`Search`/`Insert`/`Delete`/`Scan`には一切手を入れない)。フロントエンドは実行前後のダンプを見比べて「どのページが変わったか(分割が起きたか等)」を表示する。ページ内部(スロット配列・セルバイト列)まで見せるかは次項参照。
+
+**実装済み(`storage/btree/dump.go`、`(*BTree).DumpTree`)。** 当初`disk *page.DiskManager`を直接読む自由関数として設計していたが、`storage/btree/docs/spec.md`のNo-Force方式(コミット後もバッファプール上のdirtyページが最新で、ディスクにはまだ反映されない場合がある)を踏まえると、`disk`を直読みすると未フラッシュの変更を見逃すバグになると気づき、既存の`Search`/`Scan`と同じく`bt.bp`(バッファプール)経由で読む`*BTree`のメソッドに変更した。この見逃しは`TestDumpTreeReflectsUncommittedInsert`で回帰確認している。
+
+また、1つのB+Treeファイルは複数テーブルのセルを同じページに混在させて保持しうる(`storage/btree/docs/spec.md`「キーフォーマット」参照)ため、葉ノードのセルは`schema.TableID`に一致するものだけを`Rows`に含める(`Scan()`と同じ判定方法)。
 
 ```go
-// storage/btree/dump.go (新規)
-func DumpTree(disk *page.DiskManager, schema *types.Schema) (*TreeSnapshot, error)
+// storage/btree/dump.go
+func (bt *BTree) DumpTree(schema *types.Schema) (*TreeSnapshot, error)
 
 type TreeSnapshot struct {
     RootPageID uint32
