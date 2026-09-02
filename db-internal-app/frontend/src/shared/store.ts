@@ -44,6 +44,16 @@ function diffNewPKs(prevTree: TreeSnapshot | null, nextTree: TreeSnapshot | null
   return diff
 }
 
+// 1ページ(4KB)に3〜4件しか入らないよう、わざと長いnameで1件あたりのバイト数を
+// 稼ぐ(実データの話。表示側は features/storage/layout.ts の truncateField で
+// 常に短く見せる)。VARCHAR(50)という宣言は今のexecutor/plannerでは検証されて
+// いない(project_issuesの既知の課題)ため、実際は好きな長さを入れられる。
+const PADDED_NAME_LENGTH = 700
+
+function paddedSeedName(id: number): string {
+  return `seed-${id}`.padEnd(PADDED_NAME_LENGTH, 'x')
+}
+
 function maxNumericId(tree: TreeSnapshot | null): number {
   let max = 0
   if (!tree) return max
@@ -104,7 +114,7 @@ export const useDbInternal = create<State>((set, get) => ({
           Array.from({ length: batchEnd - batchStart + 1 }, (_, k) => {
             const id = startId + batchStart + k
             const wantTree = batchStart + k === n
-            return execSql(`INSERT INTO ${table} VALUES (${id}, 'seed-${id}')`, wantTree ? table : undefined)
+            return execSql(`INSERT INTO ${table} VALUES (${id}, '${paddedSeedName(id)}')`, wantTree ? table : undefined)
           }),
         )
         const errored = results.find((r) => r.error)

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDbInternal } from './store'
 
-const DEFAULT_SEED_COUNT = 600
+const DEFAULT_SEED_COUNT = 40
 
 export function EditorPanel() {
   const sql = useDbInternal((s) => s.sql)
@@ -38,7 +38,7 @@ export function EditorPanel() {
           <input
             type="number"
             min={1}
-            max={50000}
+            max={2000}
             value={seedCount}
             onChange={(e) => setSeedCount(Number(e.target.value))}
             className="w-20 rounded-lg border border-accent2/40 bg-surface px-2 py-2 text-xs text-ink outline-none focus:border-accent2"
@@ -54,7 +54,7 @@ export function EditorPanel() {
           </button>
         </div>
         <p className="pt-2 text-[10px] leading-relaxed text-muted">
-          
+          わざと長いnameを入れて1ページ3〜4件しか入らないようにしています(表示は簡潔にしたまま)。10件程度で複数の葉に分岐、700件前後でRoot自体も分割されて3階層になります(実測値)。
         </p>
       </div>
 

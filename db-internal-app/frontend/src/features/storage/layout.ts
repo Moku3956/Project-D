@@ -32,14 +32,27 @@ export type LayoutEdge = {
 
 export type Layout = { nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; height: number }
 
+const MAX_FIELD_LEN = 12
+
+/** 1フィールドの表示を短く切り詰める。分岐を起こしやすくするためseedMany側で
+ * わざと長いnameを入れることがあるが、表示は常に簡潔にする(実データの長さと
+ * 見た目の簡潔さは別の話、というユーザー指示による)。 */
+function truncateField(v: unknown): string {
+  const s = String(v)
+  return s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) + '…' : s
+}
+
 /** rowsを「先頭2件＋省略＋末尾2件」に圧縮する(db-internal-app/docs/spec.md「Storage」参照)。
  * 全体が4件以下ならそのまま全件を返す。 */
 function truncateCells(rows: unknown[][], newPKs: Set<unknown>): Cell[] {
-  const toCell = (row: unknown[]): Cell => ({
-    kind: 'row',
-    text: row.length > 1 ? `${String(row[0])}: ${row.slice(1).map(String).join(', ')}` : String(row[0]),
-    isNew: newPKs.has(row[0]),
-  })
+  const toCell = (row: unknown[]): Cell => {
+    const fields = row.map(truncateField)
+    return {
+      kind: 'row',
+      text: fields.length > 1 ? `${fields[0]}: ${fields.slice(1).join(', ')}` : fields[0],
+      isNew: newPKs.has(row[0]),
+    }
+  }
   if (rows.length <= TAIL_COUNT) {
     return rows.map(toCell)
   }
