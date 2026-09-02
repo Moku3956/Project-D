@@ -26,6 +26,8 @@ HTTP API(`api/`)を拡張して複数リクエストにまたがる`BEGIN`/`COMM
 
 `sql-monster`は`client`パッケージをimportし、その上に独自のHTTP API(フロントエンド向け)を被せる二層構成にする。パッケージ構成はコアの`cmd/server`に揃え、`sql-monster/internal/game/`(コアロジック)+`sql-monster/cmd/server/`(エントリポイント)とする。
 
+**暫定措置: 現在のDBエンジンはSQLite。** Project-D本体のSQL言語に算術演算子(`+ - * /`)が未実装で、「`UPDATE monsters SET hp = hp - 50`」のような攻撃SQLが書けない(`project_issues.md`参照)。これを回避するため、`sql-monster/internal/sqlitedb`パッケージ(`database/sql` + `modernc.org/sqlite`)を新設し、`client`パッケージの代わりに一時的に使っている。`client.DB`とほぼ同じメソッド形状(`Open`/`Exec`/`Begin`/`Tx.Exec`/`Commit`/`Rollback`)にしてあり、Project-D本体に算術演算子が実装され次第、`client`パッケージに戻す想定。上記の二層構成という設計方針そのものは変わっていない。
+
 ---
 
 ## モンスター

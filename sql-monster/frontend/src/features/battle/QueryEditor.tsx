@@ -3,14 +3,12 @@ import { useGame } from '../../shared/store'
 import { PHASE_ACTIONS, isAnalysisPhase, type PhaseNumber } from '../../shared/types'
 
 /** フェーズごとの雛形SQL。プレイヤーはここから書き換えて使う。 */
-function template(phase: PhaseNumber, monsterId: number, monsterHP: number): string {
+function template(phase: PhaseNumber, monsterId: number): string {
   switch (phase) {
     case 1:
       return `SELECT * FROM monster_weaknesses\nWHERE monster_id = ${monsterId}`
     case 2:
-      // 算術式(hp - 50)が言語未対応のため、絶対値で書く必要がある
-      // (project_issues.md「算術演算子が言語に存在しない」)
-      return `UPDATE monsters SET hp = ${Math.max(0, monsterHP - 50)}\nWHERE id = ${monsterId}`
+      return `UPDATE monsters SET hp = hp - 50\nWHERE id = ${monsterId}`
     case 3:
       return `SELECT * FROM monster_attacks\nWHERE monster_id = ${monsterId}`
     case 4:
@@ -29,7 +27,7 @@ export function QueryEditor() {
   const [sql, setSql] = useState('')
 
   useEffect(() => {
-    setSql(template(battle.phase, battle.monster.id, battle.monster_hp))
+    setSql(template(battle.phase, battle.monster.id))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [battle.phase, battle.monster.id])
 

@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Moku3956/Project-D/client"
+	"github.com/Moku3956/Project-D/sql-monster/internal/sqlitedb"
 )
 
 // ---- ヘルパー ----
 
-func setupBattle(t *testing.T, maxRes Resources) (*client.DB, *Battle) {
+func setupBattle(t *testing.T, maxRes Resources) (*sqlitedb.DB, *Battle) {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := client.Open(dir)
+	db, err := sqlitedb.Open(dir)
 	if err != nil {
 		t.Fatalf("Open error: %v", err)
 	}
@@ -86,6 +86,32 @@ func TestAttackDealsDamageAndConsumesResource(t *testing.T) {
 	}
 	if battle.Resources().AttackDefense != 20 {
 		t.Errorf("AttackDefense = %d, want 20", battle.Resources().AttackDefense)
+	}
+
+	hp, err := battle.MonsterHP()
+	if err != nil {
+		t.Fatalf("MonsterHP error: %v", err)
+	}
+	if hp != 70 {
+		t.Errorf("MonsterHP = %d, want 70", hp)
+	}
+}
+
+// TestAttackSupportsArithmeticExpression はSQLiteに差し替えたことで
+// 「SET hp = hp - 30」のような算術式がそのまま書けることを確認する
+// (project_issues.md「算術演算子が言語に存在しない」の回避策)。
+func TestAttackSupportsArithmeticExpression(t *testing.T) {
+	_, battle := setupBattle(t, Resources{Analysis: 50, AttackDefense: 50})
+
+	dealt, ok, err := battle.Attack("UPDATE monsters SET hp = hp - 30 WHERE id = 1")
+	if err != nil {
+		t.Fatalf("Attack error: %v", err)
+	}
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if dealt != 30 {
+		t.Errorf("dealt = %d, want 30", dealt)
 	}
 
 	hp, err := battle.MonsterHP()
