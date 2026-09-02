@@ -32,7 +32,7 @@ export function BattleMenu({ onClose }: { onClose: () => void }) {
   ]
 
   return (
-    <div className="absolute right-6 top-full z-20 mt-2 w-[340px] rounded-2xl border border-line bg-panel">
+    <div className="absolute right-0 top-full z-20 mt-2 w-[340px] rounded-2xl border border-line bg-panel">
       <div className="flex items-center justify-between border-b border-line px-5 py-4">
         <span className="font-display text-sm font-bold text-neon">&gt;_ MENU</span>
         <button type="button" onClick={onClose} className="text-muted hover:text-ink">

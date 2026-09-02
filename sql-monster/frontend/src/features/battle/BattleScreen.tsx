@@ -1,12 +1,10 @@
 import { useGame } from '../../shared/store'
-import { MonsterDisplay } from './MonsterDisplay'
+import { SettingsButton } from '../../shared/SettingsButton'
+import { MonsterPanel } from './MonsterPanel'
 import { PhaseStepper } from './PhaseStepper'
-import { PlayerPanel } from './PlayerPanel'
-import { QueryEditor } from './QueryEditor'
-import { ResultPanel } from './ResultPanel'
 import { SyntaxMap } from './SyntaxMap'
+import { WorkspacePanel } from './WorkspacePanel'
 
-/** 決着がついたときに前面に出す結果表示。 */
 function Outcome() {
   const battle = useGame((s) => s.battle)!
   const restart = useGame((s) => s.restart)
@@ -14,7 +12,7 @@ function Outcome() {
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/75 p-4">
-      <div className="w-[420px] rounded-2xl border border-line bg-panel p-6 text-center">
+      <div className="w-[360px] rounded-2xl border border-line bg-panel p-6 text-center">
         <h2
           className={`font-display text-3xl font-extrabold ${
             battle.won ? 'text-done' : 'text-danger'
@@ -22,11 +20,6 @@ function Outcome() {
         >
           {battle.won ? 'VICTORY' : 'DEFEAT'}
         </h2>
-        <p className="mt-3 text-sm text-muted">
-          {battle.won
-            ? `${battle.monster.name} を撃破しました。次のモンスターが解放されます。`
-            : `${battle.monster.name} に敗北しました。`}
-        </p>
         <div className="mt-6 flex gap-3">
           <button
             type="button"
@@ -38,7 +31,7 @@ function Outcome() {
           <button
             type="button"
             onClick={() => void backToHome()}
-            className="flex-1 rounded-lg bg-neon py-3 font-display text-sm font-bold text-base hover:brightness-110"
+            className="flex-1 rounded-lg bg-neon py-3 font-display text-sm font-bold text-deep hover:brightness-110"
           >
             HOME
           </button>
@@ -48,28 +41,32 @@ function Outcome() {
   )
 }
 
+/**
+ * バトル画面。header-barは廃止済み(docs/battle_screen_ui.md「v2: スクロールしないレイアウト」)。
+ * フェーズタブ+設定ボタンの行 → 左60%(モンスター)/右40%(作業スペース) → SQL対応表、の3段構成。
+ */
 export function BattleScreen() {
   const battle = useGame((s) => s.battle)
-  const lastResult = useGame((s) => s.lastResult)
   const error = useGame((s) => s.error)
 
   if (!battle) return null
 
   return (
-    <div className="flex flex-col gap-4 pb-6">
-      <PhaseStepper phase={battle.phase} />
-      <MonsterDisplay battle={battle} />
+    <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
+      <div className="flex shrink-0 items-center gap-3">
+        <PhaseStepper phase={battle.phase} />
+        <SettingsButton />
+      </div>
 
-      <div className="flex gap-4 px-6">
-        <ResultPanel phase={battle.phase} result={lastResult} />
-        <QueryEditor />
-        <PlayerPanel battle={battle} />
+      <div className="flex min-h-0 flex-1 gap-4">
+        <MonsterPanel battle={battle} />
+        <WorkspacePanel battle={battle} />
       </div>
 
       <SyntaxMap />
 
       {error && (
-        <p className="mx-6 rounded border border-danger/50 bg-danger/10 p-3 text-xs text-danger">
+        <p className="shrink-0 rounded border border-danger/50 bg-danger/10 px-3 py-2 text-xs text-danger">
           {error}
         </p>
       )}

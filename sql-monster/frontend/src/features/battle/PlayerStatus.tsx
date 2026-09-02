@@ -1,16 +1,6 @@
 import type { Battle } from '../../shared/types'
 
-function Bar({
-  label,
-  value,
-  max,
-  color,
-}: {
-  label: string
-  value: number
-  max: number
-  color: string
-}) {
+function Bar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
   const ratio = max === 0 ? 0 : Math.max(0, Math.min(1, value / max))
   return (
     <div>
@@ -20,7 +10,7 @@ function Bar({
           {value} / {max}
         </span>
       </div>
-      <div className="mt-1.5 h-2.5 overflow-hidden rounded bg-base">
+      <div className="mt-1.5 h-2.5 overflow-hidden rounded bg-deep">
         <div
           className="h-full transition-[width] duration-300"
           style={{ width: `${ratio * 100}%`, background: color }}
@@ -30,12 +20,12 @@ function Bar({
   )
 }
 
-/** 右パネル。プレイヤーのHP・ターン・2種のリソース・ログ。 */
-export function PlayerPanel({ battle }: { battle: Battle }) {
+/** 右カラム上部。常時表示のプレイヤー状態(HP・TURN・2種のリソースバー)。 */
+export function PlayerStatus({ battle }: { battle: Battle }) {
   const { resources } = battle
 
   return (
-    <aside className="flex w-[380px] shrink-0 flex-col gap-4 rounded-xl border border-line bg-panel p-4">
+    <div className="shrink-0 space-y-3">
       <h3 className="font-display text-base font-bold text-amber">&gt;_ PLAYER</h3>
 
       <div className="flex items-start justify-between rounded-lg border border-line p-3">
@@ -65,20 +55,6 @@ export function PlayerPanel({ battle }: { battle: Battle }) {
         max={resources.attack_defense_max}
         color="var(--color-amber)"
       />
-
-      <div className="flex min-h-0 flex-1 flex-col">
-        <p className="text-[11px] font-bold text-muted">LOG</p>
-        <div className="mt-2 flex-1 overflow-y-auto rounded border border-line bg-base/60 p-3">
-          {battle.logs
-            .slice()
-            .reverse()
-            .map((line, i) => (
-              <p key={i} className="mb-2 text-[11px] leading-relaxed text-muted last:mb-0">
-                {line}
-              </p>
-            ))}
-        </div>
-      </div>
-    </aside>
+    </div>
   )
 }

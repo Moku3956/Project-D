@@ -18,6 +18,7 @@ function template(phase: PhaseNumber, monsterId: number, monsterHP: number): str
   }
 }
 
+/** EDITORタブの中身。QUERY_COSTの表示はデザイン変更で廃止済み。 */
 export function QueryEditor() {
   const battle = useGame((s) => s.battle)!
   const busy = useGame((s) => s.busy)
@@ -27,64 +28,53 @@ export function QueryEditor() {
 
   const [sql, setSql] = useState('')
 
-  // フェーズが変わったら雛形を入れ直す
   useEffect(() => {
     setSql(template(battle.phase, battle.monster.id, battle.monster_hp))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [battle.phase, battle.monster.id])
 
-  const cost =
-    battle.phase === 2
-      ? 'PROJECTED_COST: 実測したHP差分ぶん (ATTACK/DEFENSE)'
-      : `QUERY_COST: 読んだ行数ぶん (ANALYSIS)`
-
   return (
-    <section className="flex min-w-0 flex-1 flex-col gap-4">
-      <div className="rounded-xl border border-line bg-panel p-4">
-        <div className="flex items-center justify-between pb-3">
-          <span className="text-[13px] text-muted">&gt;_ query_planner.sql</span>
-          {lastResult?.scan && (
-            <span
-              className={`text-[11px] font-bold ${
-                lastResult.scan === 'index' ? 'text-done' : 'text-muted'
-              }`}
-            >
-              {lastResult.scan === 'index' ? 'INDEX SCAN — 精密' : `${lastResult.scan.toUpperCase()} SCAN`}
-            </span>
-          )}
-        </div>
-
-        <textarea
-          value={sql}
-          onChange={(e) => setSql(e.target.value)}
-          spellCheck={false}
-          className="sql-input h-[200px] w-full resize-none rounded-lg border border-line bg-base p-4 text-sm text-neon outline-none focus:border-neon/60"
-        />
-
-        <div className="flex items-center justify-between pt-4">
-          <span className="text-[13px] text-muted">{cost}</span>
-          <div className="flex gap-2">
-            {isAnalysisPhase(battle.phase) && (
-              <button
-                type="button"
-                disabled={busy || battle.over}
-                onClick={() => void advance()}
-                className="rounded-lg border border-line px-4 py-3 font-display text-sm font-bold text-muted hover:text-ink disabled:opacity-50"
-              >
-                NEXT PHASE
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={busy || battle.over}
-              onClick={() => void runQuery(sql)}
-              className="rounded-lg bg-neon px-6 py-3 font-display text-sm font-bold text-base hover:brightness-110 disabled:opacity-50"
-            >
-              {PHASE_ACTIONS[battle.phase]}
-            </button>
-          </div>
-        </div>
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center justify-between pb-2">
+        <span className="text-[13px] text-muted">&gt;_ query_planner.sql</span>
+        {lastResult?.scan && (
+          <span
+            className={`text-[11px] font-bold ${
+              lastResult.scan === 'index' ? 'text-done' : 'text-muted'
+            }`}
+          >
+            {lastResult.scan === 'index' ? 'INDEX SCAN — 精密' : `${lastResult.scan.toUpperCase()} SCAN`}
+          </span>
+        )}
       </div>
-    </section>
+
+      <textarea
+        value={sql}
+        onChange={(e) => setSql(e.target.value)}
+        spellCheck={false}
+        className="sql-input min-h-[160px] w-full flex-1 resize-none rounded-lg border border-line bg-deep p-4 text-sm text-neon outline-none focus:border-neon/60"
+      />
+
+      <div className="flex shrink-0 justify-end gap-2 pt-3">
+        {isAnalysisPhase(battle.phase) && (
+          <button
+            type="button"
+            disabled={busy || battle.over}
+            onClick={() => void advance()}
+            className="rounded-lg border border-line px-4 py-2.5 font-display text-sm font-bold text-muted hover:text-ink disabled:opacity-50"
+          >
+            NEXT PHASE
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy || battle.over}
+          onClick={() => void runQuery(sql)}
+          className="flex-1 rounded-lg bg-neon py-2.5 font-display text-sm font-bold text-deep hover:brightness-110 disabled:opacity-50"
+        >
+          {PHASE_ACTIONS[battle.phase]}
+        </button>
+      </div>
+    </div>
   )
 }

@@ -2,7 +2,8 @@
 
 /* Figmaデザイン(docs/battle_screen_ui.md, home_screen_ui.md)の配色・フォントをトークン化する */
 @theme {
-  --color-base: #07090e;
+  /* "base" は Tailwind予約語(text-base = font-size)と衝突するため "deep" にしている */
+  --color-deep: #07090e;
   --color-panel: #0e131f;
   --color-line: #253149;
   --color-line-soft: #384662;
@@ -27,7 +28,7 @@ body,
 }
 
 body {
-  background-color: var(--color-base);
+  background-color: var(--color-deep);
   color: var(--color-ink);
   font-family: var(--font-mono);
 }

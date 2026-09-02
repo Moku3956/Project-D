@@ -57,7 +57,7 @@ export function MonsterNode({ monster, point, canvas, onSelect }: Props) {
             transform: 'translate(-50%, 0)',
             background: color,
           }}
-          className="absolute rounded-lg px-6 py-2 font-display text-sm font-bold text-base hover:brightness-110"
+          className="absolute rounded-lg px-6 py-2 font-display text-sm font-bold text-deep hover:brightness-110"
         >
           START
         </button>

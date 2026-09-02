@@ -59,7 +59,7 @@ export function MonsterPreview() {
           type="button"
           disabled={busy}
           onClick={() => void startBattle(monster.id)}
-          className="mt-4 w-full rounded-lg py-3 font-display text-sm font-bold text-base hover:brightness-110 disabled:opacity-50"
+          className="mt-4 w-full rounded-lg py-3 font-display text-sm font-bold text-deep hover:brightness-110 disabled:opacity-50"
           style={{ background: color }}
         >
           START BATTLE

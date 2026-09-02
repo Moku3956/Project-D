@@ -8,12 +8,12 @@ const OPS = [
 
 export function SyntaxMap() {
   return (
-    <footer className="mx-6 flex flex-wrap items-center gap-x-8 gap-y-2 rounded-xl border border-line bg-panel px-4 py-3">
+    <footer className="flex shrink-0 flex-wrap items-center gap-x-8 gap-y-2 rounded-xl border border-line bg-panel px-4 py-3">
       <span className="text-[13px] font-bold text-neon">SQL OPERATION SYNTAX MAP:</span>
       {OPS.map(({ op, color, desc }) => (
         <span key={op} className="flex items-center gap-2">
           <span
-            className="rounded px-2 py-0.5 text-[11px] font-bold text-base"
+            className="rounded px-2 py-0.5 text-[11px] font-bold text-deep"
             style={{ background: color }}
           >
             {op}
