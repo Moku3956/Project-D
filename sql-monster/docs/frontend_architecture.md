@@ -1,6 +1,8 @@
 # フロントエンド設計
 
-`battle_screen_ui.md` / `home_screen_ui.md`(Figma設計)を実装するにあたっての技術選定・アーキテクチャ方針。まだ実装前の決定事項のみで、コードはまだない。
+`battle_screen_ui.md` / `home_screen_ui.md`(Figma設計)を実装するにあたっての技術選定・アーキテクチャ方針。
+
+起動方法・遊び方は [`../README.md`](../README.md) を参照。
 
 ---
 
@@ -12,6 +14,7 @@
 | ビルド/開発サーバー | Vite |
 | スタイリング | Tailwind CSS |
 | 状態管理 | Zustand(バトル中のフェーズ・リソースなど画面をまたぐ状態) |
+| フォント | Orbitron(見出し・表示系) / Space Mono(データ・コード・ラベル) — いずれもGoogle Fonts |
 
 
 ## フォルダ構成: フィーチャーベース

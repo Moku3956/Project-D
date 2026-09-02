@@ -4,12 +4,24 @@
 
 - Figmaファイル: https://www.figma.com/design/SYNd796ebb3ETGhECYVlFc/ (node-id `2:4`, フレーム名 `sql-battle-screen`)
 - ファイルには他にテンプレート素材が入っていたが全て削除済み。`sql-battle-screen`(フェーズ1)の右に、フェーズ2〜4を`sql-battle-screen-phase2` / `-phase3` / `-phase4`として複製・編集済み。さらに右に、設定パネルの中身を`settings-panel`として単独フレームで用意。
+- **`sql-battle-screen-v2-viewport(1440x700)`という別フレームで、下記「v2: スクロールしないレイアウト」の設計を検証中。** 元の`sql-battle-screen`(フェーズ1〜4)は削除せず残してある。実装(`sql-monster/frontend`)を差し替える際はv2の構成を正とする。
 
 ---
 
 ## 画面構成
 
 見た目のテーマは「ターミナル/ハッカー風」。ダークベースにネオン系のアクセントカラー(シアン/オレンジ/レッドなど)。
+
+### タイポグラフィ
+
+「文字をメカニカルな感じにしたい」という方針で、当初のGeist / Geist Monoから差し替えた(全フレーム適用済み)。
+
+| 用途 | フォント |
+|---|---|
+| 見出し・タイトル・ボタン(13px以上の表示系) | **Orbitron**(ExtraBold / Bold / SemiBold) |
+| データ・コード・ラベル・ログ(モノスペース系) | **Space Mono**(Regular / Bold) |
+
+モノスペース側は当初Share Tech Monoを試したが、**ウェイトがRegular 1種類しかなく**、HP値・`PHASE_01`・`QUERY_COST`などの太字強調が全部平坦になってしまうため、Boldを持つSpace Monoに変更した。
 
 ```
 header-bar
@@ -161,6 +173,98 @@ Figma上は4フェーズを別フレーム(静的な複製)として作った。
 **決定事項:**
 - `QUIT`: その対戦は**敗北扱い**にする。
 - `RESTART`: ペナルティなし。何度でも無料でやり直せる。
+
+---
+
+## v2: スクロールしないレイアウト
+
+コード実装したところ、バトル画面全体を見るのにスクロールが必要になった。**スクロールしないサイズにする、という制約を忘れていたのが原因。** フェーズ1〜4を別Figmaフレームにしたことも、「1画面内で状態が切り替わる」という前提を「画面ごとスクロールして見比べる」という誤った前提にすり替えてしまっていた。実装のCSSだけで帳尻を合わせず、**Figmaの設計自体をブラウザの実表示領域に収まるサイズで作り直す**ことにした。
+
+### キャンバスサイズを実測可能にする
+
+Figmaのauto-layoutフレームは中身に応じて`primaryAxisSizingMode: HUG`で伸縮するため、そのままだと際限なく高さが伸びる。ルートを`HUG`のままにすると「収まっているかどうか」を目視で確認できないため、**幅1440×高さ700の固定サイズ・`clipsContent: true`のプレーンフレーム(auto-layoutではない)で全体を包んだ。** 700pxは、ノートPC(1366×768)でブラウザのUIを引いた実効高さの見積もり。はみ出した分は切り取られて見えなくなるので、「収まっていない」ことがスクリーンショットで即座にわかる(実際、最初の再構成では856px相当あり、156px分がフッターごと見切れて発覚した)。
+
+### 2カラム構成 + タブ切り替え
+
+3カラム(RESULT/エディタ/PLAYER)構成だと、エディタの取り分が狭く長いクエリを書けない、テーブル定義を確認する場所もない、という問題があった。**「同時に見えている必要があるもの」と「切り替えれば十分なもの」を分けて設計し直した:**
+
+```
+header-bar は廃止。設定ボタン(三本線)は turn-phases の行内、フェーズタブの右隣に統合。
+BATTLE_FLOW_PHASEというラベルも削除(タブを見れば分かるので不要)。
+
+main-row (60:40)
+  left-column
+    tab-switcher-left: CARD | TABLE
+    tab-content-left:
+      CARD選択時 → モンスター画像(縦に大きく) + 名前/LV/HPバー/デバフ(画像の下)
+      TABLE選択時 → テーブル定義の参照(未作成、次回)
+  right-column
+    section-title "PLAYER" + player-core-stats(HP/TURN) + resources-group(2種のリソースバー) ← 常時表示
+    tab-switcher: EDITOR | RESULT | LOG
+    tab-content:
+      EDITOR選択時(初期状態) → SQLエディタ本体。クエリを実行すると自動でRESULTタブに切り替わる(仕様)
+      RESULT選択時 → SELECT結果テーブル(未作成、次回)
+      LOG選択時 → バトルログ(未作成、次回)
+
+bottom-bar-ref(SQL操作対応表)はそのまま残す
+```
+
+**同時に3つ以上のブロックを常時表示しない**のが今回のキモ。「モンスター画像」と「テーブル定義」はどちらも見たいときだけでよいのでCARD/TABLEタブに、「エディタ」「実行結果」「ログ」も同様にEDITOR/RESULT/LOGタブにまとめた。これによって、常時表示が必要な要素(PLAYERステータス、フェーズ進行)だけに高さを使わせず、選択中の1ブロックに残りの高さを全部渡せる。
+
+### 高さの現在地(1440×700に固定した状態)
+
+| ブロック | 高さ |
+|---|---|
+| phases-row(フェーズタブ+設定ボタン) | 62px |
+| left-column(CARDタブ: モンスター画像+情報) / right-column | 558px(左右で揃えてある) |
+| うちSQLエディタ本体(textarea) | 260px(約12行) |
+| bottom-bar-ref | 34px |
+
+これは`sql-battle-screen-v2-viewport(1440x700)`というFigmaフレームで実測しながら詰めた値。個々のpadding/gapを機械的に同じ比率で縮める(700/実測値)アプローチを試したが、フォントサイズに底があるため思ったほど縮まず、最終的には要素ごとに手で数値を追って調整した。
+
+### 設定ボタンの位置・QUERY_COSTの削除
+
+- 設定ボタン(三本線)は`turn-phases`のカード枠の**外側**、右横に配置し直した。枠の中に入っていると「フェーズタブの一部の機能」に見えてしまうため。
+- `QUERY_COST`表示(実行ボタンの上にあった行)を削除。浮いた分をエディタの高さに回し、**286px(13〜14行相当)**まで拡大した。コストは`RESULT`タブや`LOG`に実行後の情報として出す形で代替できるため、常時表示は不要と判断。
+
+### TABLEタブ(反映済み — `sql-battle-screen-v2-table-tab`)
+
+CARD/TABLEを切り替えた状態を別フレームとして用意。中身は`sql-monster/internal/game/schema.go`の定義と一致させた4テーブル(`monsters` / `monster_weaknesses` / `monster_attacks` / `players`)。
+
+**当初はテーブル名+カラム一覧を縦に並べただけのリスト表示だったが、ER図に作り直した。** `monsters`を中心(白枠)に置き、`monster_id`で参照する`monster_weaknesses`・`monster_attacks`(シアン枠)を線で繋ぎ、関連のない`players`(グレー枠)は独立して配置している。カラムはPK/FKをそれぞれ色分けして明示。プレイヤーがSELECT文を書く際、カラム名だけでなくテーブル同士の繋がりも視覚的に把握できるようにする狙い。
+
+### RESULT / LOGタブ(反映済み — `sql-battle-screen-v2-result-tab` / `-log-tab`)
+
+TABLEタブと同じやり方で、それぞれタブが選択された状態を別フレームとして用意した。
+
+- **RESULT**: `SELECT * FROM monster_weaknesses`の実行結果テーブル(既存モックの`terminal-result-client`をそのまま流用)。`実行(Run Query)すると自動でこのタブに切り替わる`という仕様どおりの見た目。
+- **LOG**: 既存モックの`battle-log-container`をそのまま流用。任意のタイミングでタブを押せば見られる。
+
+いずれも左右カラムの高さ(558px)・全体の高さ(700px)を他のフレームと揃えてある。
+
+### フェーズ2〜4への反映(反映済み — `sql-battle-screen-v2-phase2` / `-phase3` / `-phase4`)
+
+フェーズ1のv2フレームを複製し、各フェーズごとに以下を差し替えた(それ以外の構造・タブ挙動・700px制約はすべて共通):
+
+| | クエリ | 実行ボタン文言 |
+|---|---|---|
+| フェーズ2 | `UPDATE monsters SET hp = 2580 WHERE id = 42 AND weakness = 'ACID';` | `Execute Attack` |
+| フェーズ3 | `SELECT * FROM monster_attacks WHERE monster_id = 42 ORDER BY likelihood DESC;` | `Run Query` |
+| フェーズ4 | `SELECT * FROM monster_attacks WHERE monster_id = 42 AND tag = 'LASER_BEAM';` | `Confirm Defense` |
+
+フェーズタブの色分けは進行に応じて更新(現在地=シアン、それ以外=グレー)。DONE状態を示す文言・色は前回の設計で廃止済みのため、v2でも復活させていない(状態はタブの色だけで表現)。
+
+TABLE/RESULT/LOGタブの中身(フェーズごとの実行結果差分)は、共通のCARD/TABLE/EDITOR/RESULT/LOGフレームで代表させており、フェーズ2〜4それぞれについて別途は作っていない。フェーズ2の実行結果(PREVIEW的な実測差分表示)は今後別途検討が必要。
+
+### 未着手
+
+- フェーズ2の`RESULT`タブの中身(実測HP差分のプレビュー表示)は、フェーズ1用のRESULTタブ(SELECT結果テーブル)とは性質が異なるため、別途デザインが必要。
+
+---
+
+## テーブル列の見切れ修正
+
+結果テーブルの4列目(`SEVERITY` / `POWER` / `NOTE`)が右端で見切れていた。原因は、`left-panel-intel`の幅が360px→346pxに変わった際に列のx座標が追従しておらず、**4列目がコンテナ幅(314px)を16pxはみ出していた**こと。ヘッダーと全データ行の3〜4列目の位置・幅を314px内に収まるよう調整し、全4フレームに適用した。
 
 ---
 
