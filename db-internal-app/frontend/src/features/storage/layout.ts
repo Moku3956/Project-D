@@ -67,21 +67,23 @@ function leafWidth(cells: Cell[]): number {
   return cells.reduce((w, c) => w + (c.kind === 'omit' ? OMIT_W : CELL_W), 0)
 }
 
-/** 内部ノードのchildren(セルのchild + RightmostChild)と、各境界のラベルを組み立てる。 */
+/** 内部ノードのchildren(セルのchild + RightmostChild)と、各境界のラベルを組み立てる。
+ * keysはPKそのもの(パディングされた長い文字列のことがある)なので、ラベルは
+ * truncateFieldで必ず短く切り詰める。 */
 function childEdgesOf(page: PageSnapshot): { childID: number; label: string }[] {
   const keys = page.keys ?? []
   const children = page.childPageIds ?? []
   const out: { childID: number; label: string }[] = []
   children.forEach((childID, i) => {
     if (i === 0) {
-      out.push({ childID, label: keys[0] !== undefined ? `< ${keys[0]}` : '' })
+      out.push({ childID, label: keys[0] !== undefined ? `< ${truncateField(keys[0])}` : '' })
     } else {
-      out.push({ childID, label: `${keys[i - 1]} 〜 <${keys[i]}` })
+      out.push({ childID, label: `${truncateField(keys[i - 1])} 〜 <${truncateField(keys[i])}` })
     }
   })
   if (page.rightmostChild !== undefined) {
     const last = keys[keys.length - 1]
-    out.push({ childID: page.rightmostChild, label: last !== undefined ? `>= ${last}` : '' })
+    out.push({ childID: page.rightmostChild, label: last !== undefined ? `>= ${truncateField(last)}` : '' })
   }
   return out
 }

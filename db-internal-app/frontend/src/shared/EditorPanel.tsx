@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDbInternal } from './store'
 
-const DEFAULT_SEED_COUNT = 40
+const DEFAULT_SEED_COUNT = 60
 
 export function EditorPanel() {
   const sql = useDbInternal((s) => s.sql)
@@ -54,7 +54,7 @@ export function EditorPanel() {
           </button>
         </div>
         <p className="pt-2 text-[10px] leading-relaxed text-muted">
-          わざと長いnameを入れて1ページ3〜4件しか入らないようにしています(表示は簡潔にしたまま)。10件程度で複数の葉に分岐、700件前後でRoot自体も分割されて3階層になります(実測値)。
+          わざと長いidを入れて1ページ数件しか入らないようにしています(表示は簡潔にしたまま)。idは複合キーとして葉・内部ノード両方に含まれるため、Rootだけが極端に枝分かれすることもありません。60件で葉2件・内部ノード4〜7件ずつの多段構造になります(実測値)。
         </p>
       </div>
 
