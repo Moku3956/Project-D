@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDbInternal } from './store'
 
-const DEFAULT_SEED_COUNT = 120
+const DEFAULT_SEED_COUNT = 600
 
 export function EditorPanel() {
   const sql = useDbInternal((s) => s.sql)
@@ -10,7 +10,6 @@ export function EditorPanel() {
   const seedMany = useDbInternal((s) => s.seedMany)
   const busy = useDbInternal((s) => s.busy)
   const error = useDbInternal((s) => s.error)
-  const lastResult = useDbInternal((s) => s.lastResult)
   const [seedCount, setSeedCount] = useState(DEFAULT_SEED_COUNT)
 
   return (
@@ -39,7 +38,7 @@ export function EditorPanel() {
           <input
             type="number"
             min={1}
-            max={5000}
+            max={50000}
             value={seedCount}
             onChange={(e) => setSeedCount(Number(e.target.value))}
             className="w-20 rounded-lg border border-accent2/40 bg-surface px-2 py-2 text-xs text-ink outline-none focus:border-accent2"
@@ -54,17 +53,14 @@ export function EditorPanel() {
             件まとめてINSERT ⚡
           </button>
         </div>
+        <p className="pt-2 text-[10px] leading-relaxed text-muted">
+          
+        </p>
       </div>
 
       {error && (
         <p className="mt-3 rounded-lg bg-orange-50 p-3 text-xs text-accent2" role="alert">
           {error}
-        </p>
-      )}
-
-      {!error && lastResult && lastResult.columns && (
-        <p className="mt-3 text-xs text-muted">
-          {lastResult.rows?.length ?? 0}行取得 / 影響行数 {lastResult.affectedRows}
         </p>
       )}
     </div>

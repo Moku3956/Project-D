@@ -91,23 +91,35 @@ export const useDbInternal = create<State>((set, get) => ({
   seedMany: async (n) => {
     const { table, tree: prevTree } = get()
     set({ busy: true, error: null })
+    const BATCH_SIZE = 25 // 直列だと数千件で数分かかるため、まとめて並行実行する
     try {
       const startId = maxNumericId(prevTree)
-      let latestTree: TreeSnapshot | null = prevTree
-      let latestResult: ExecResponse | null = null
-      for (let i = 1; i <= n; i++) {
-        const id = startId + i
-        const result = await execSql(`INSERT INTO ${table} VALUES (${id}, 'seed-${id}')`, table)
-        latestResult = result
-        if (result.error) break
-        if (result.tree) latestTree = result.tree
+      let firstError: string | null = null
+      let finalResult: ExecResponse | null = null
+      // 木のダンプはサーバー側でページ全体を辿るコストがあるため、毎回は要求せず
+      // 一番最後のINSERTでだけツリーを取得する。
+      for (let batchStart = 1; batchStart <= n && !firstError; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, n)
+        const results = await Promise.all(
+          Array.from({ length: batchEnd - batchStart + 1 }, (_, k) => {
+            const id = startId + batchStart + k
+            const wantTree = batchStart + k === n
+            return execSql(`INSERT INTO ${table} VALUES (${id}, 'seed-${id}')`, wantTree ? table : undefined)
+          }),
+        )
+        const errored = results.find((r) => r.error)
+        if (errored) firstError = errored.error ?? '不明なエラー'
+        const withTree = results.find((r) => r.tree)
+        if (withTree) finalResult = withTree
       }
+
+      const finalTree = finalResult?.tree ?? prevTree
       set({
         busy: false,
-        error: latestResult?.error ?? null,
-        lastResult: latestResult,
-        tree: latestTree,
-        newPKs: diffNewPKs(prevTree, latestTree),
+        error: firstError,
+        lastResult: finalResult,
+        tree: finalTree,
+        newPKs: diffNewPKs(prevTree, finalTree),
       })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })

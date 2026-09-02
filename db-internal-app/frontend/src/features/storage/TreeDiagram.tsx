@@ -51,66 +51,57 @@ function InternalBox({ node, isRoot }: { node: Layout['nodes'][number]; isRoot: 
 
 /** B+Treeのツリー図。db-internal-app/docs/spec.md「Storage」の確定デザイン
  * (直線接続・分岐条件は横線上・葉はKVを横並びセルで表現)を、任意の階層数・
- * 子ノード数に対応する形で描画する。 */
-export function TreeDiagram({ tree, newPKs, scale = 1 }: { tree: TreeSnapshot; newPKs: Set<unknown>; scale?: number }) {
+ * 子ノード数に対応する形で描画する。等倍の生の大きさで描画するだけで、拡大縮小・
+ * スクロールは呼び出し側(StorageCard)が担当する。 */
+export function TreeDiagram({ tree, newPKs }: { tree: TreeSnapshot; newPKs: Set<unknown> }) {
   const layout = layoutTree(tree, newPKs)
   const width = layout.width + PADDING * 2
   const height = layout.height + PADDING * 2
 
   return (
-    <div className="overflow-x-auto">
-      <div
-        className="relative"
-        style={{
-          width: width * scale,
-          height: height * scale,
-          transform: scale !== 1 ? `scale(${scale})` : undefined,
-          transformOrigin: 'top left',
-        }}
+    <div className="relative" style={{ width, height }}>
+      <svg
+        className="pointer-events-none absolute inset-0"
+        width={width}
+        height={height}
+        viewBox={`0 0 ${width} ${height}`}
       >
-        <svg
-          className="pointer-events-none absolute inset-0"
-          width={width}
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-        >
-          {layout.edges.map((e, i) => (
-            <g key={i}>
-              <line
-                x1={e.fromX + PADDING}
-                y1={e.fromY + PADDING}
-                x2={e.toX + PADDING}
-                y2={e.toY + PADDING}
-                stroke="#2FB4FF"
-                strokeWidth={2}
-              />
-              <circle cx={e.fromX + PADDING} cy={e.fromY + PADDING} r={3} fill="#2FB4FF" />
-              <circle cx={e.toX + PADDING} cy={e.toY + PADDING} r={3} fill="#2FB4FF" />
-            </g>
-          ))}
-        </svg>
+        {layout.edges.map((e, i) => (
+          <g key={i}>
+            <line
+              x1={e.fromX + PADDING}
+              y1={e.fromY + PADDING}
+              x2={e.toX + PADDING}
+              y2={e.toY + PADDING}
+              stroke="#2FB4FF"
+              strokeWidth={2}
+            />
+            <circle cx={e.fromX + PADDING} cy={e.fromY + PADDING} r={3} fill="#2FB4FF" />
+            <circle cx={e.toX + PADDING} cy={e.toY + PADDING} r={3} fill="#2FB4FF" />
+          </g>
+        ))}
+      </svg>
 
-        {layout.edges.map(
-          (e, i) =>
-            e.label && (
-              <div
-                key={i}
-                className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent bg-surface px-2 py-0.5 text-[10px] font-bold text-accent"
-                style={{ left: (e.fromX + e.toX) / 2 + PADDING, top: (e.fromY + e.toY) / 2 + PADDING }}
-              >
-                {e.label}
-              </div>
-            ),
-        )}
-
-        {layout.nodes.map((n) =>
-          n.isLeaf ? (
-            <LeafBox key={n.pageId} node={n} />
-          ) : (
-            <InternalBox key={n.pageId} node={n} isRoot={n.pageId === tree.rootPageId} />
+      {layout.edges.map(
+        (e, i) =>
+          e.label && (
+            <div
+              key={i}
+              className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent bg-surface px-2 py-0.5 text-[10px] font-bold text-accent"
+              style={{ left: (e.fromX + e.toX) / 2 + PADDING, top: (e.fromY + e.toY) / 2 + PADDING }}
+            >
+              {e.label}
+            </div>
           ),
-        )}
-      </div>
+      )}
+
+      {layout.nodes.map((n) =>
+        n.isLeaf ? (
+          <LeafBox key={n.pageId} node={n} />
+        ) : (
+          <InternalBox key={n.pageId} node={n} isRoot={n.pageId === tree.rootPageId} />
+        ),
+      )}
     </div>
   )
 }

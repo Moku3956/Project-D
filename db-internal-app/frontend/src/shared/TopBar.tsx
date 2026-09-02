@@ -11,7 +11,7 @@ export function TopBar() {
           <span className="h-2.5 w-2.5 rounded-full bg-accent" />
           <h1 className="font-sans text-xl font-bold text-ink">db-internal-app</h1>
         </div>
-        <p className="pt-1 text-xs text-muted">SQLの内部を、1ステージずつのぞく</p>
+        <p className="pt-1 text-xs text-muted">実際のDBの中身</p>
       </div>
       <button
         type="button"
