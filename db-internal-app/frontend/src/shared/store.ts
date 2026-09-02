@@ -70,7 +70,7 @@ function paddedSeedId(n: number): string {
 }
 
 function seedName(n: number): string {
-  return `seed-${n}`
+  return `dummy-${n}`
 }
 
 /** 既存の行のPK(先頭6桁の数値部分)から次に使う番号を決める。手入力された
