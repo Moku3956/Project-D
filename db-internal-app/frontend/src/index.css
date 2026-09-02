@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* Figma「データベース可視化」ファイルのdb-internal-app colors変数コレクション
+   (Sky Coral)をトークン化する。docs/spec.md「UIビジュアルスタイル」参照。
+   "ink"は本文色。Tailwind予約語(text-base等)と衝突する名前は避けている
+   (sql-monsterで実際に踏んだ--color-base衝突バグの教訓)。*/
+@theme {
+  --color-bg: #f3faff;
+  --color-surface: #ffffff;
+  --color-accent: #2fb4ff;
+  --color-accent2: #ff7a59;
+  --color-ink: #10243e;
+  --color-muted: #7c93a8;
+  --color-line: #d8e9f5;
+  --color-onaccent: #ffffff;
+
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "Roboto Mono", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.sql-input {
+  font-family: var(--font-mono);
+  line-height: 1.7;
+  tab-size: 2;
+}

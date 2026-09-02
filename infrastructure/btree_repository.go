@@ -98,3 +98,16 @@ func (r *BTreeRepository) schema(table string) (*types.Schema, error) {
 	}
 	return s, nil
 }
+
+// Schema はテーブル名からキャッシュ済みのスキーマを返す。db-internal-appが
+// DumpTree呼び出し時にTableIDを取得するために使う公開版(schemaのエクスポート)。
+func (r *BTreeRepository) Schema(table string) (*types.Schema, error) {
+	return r.schema(table)
+}
+
+// BTree は内部で保持しているB+Treeを返す。db-internal-appのようにストレージ
+// 内部を読み取り専用で可視化する用途のために公開する(通常の呼び出し元は
+// FindByPK/Scan/Insert/Update/Deleteを使うべきで、これらを経由すべきではない)。
+func (r *BTreeRepository) BTree() *btree.BTree {
+	return r.bt
+}
