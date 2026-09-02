@@ -1,4 +1,4 @@
-// sql-monsterのエントリポイント。Project-Dのclientパッケージ経由でDBを開き、
+// sql-monsterのエントリポイント。SQLite(internal/sqlitedb)経由でDBを開き、
 // フロントエンド(React)向けのHTTP APIを提供する。
 package main
 
@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/Moku3956/Project-D/client"
 	"github.com/Moku3956/Project-D/sql-monster/internal/api"
 	"github.com/Moku3956/Project-D/sql-monster/internal/game"
+	"github.com/Moku3956/Project-D/sql-monster/internal/sqlitedb"
 )
 
 func main() {
@@ -18,9 +18,9 @@ func main() {
 	dir := envOr("DATA_DIR", "sql-monster/data")
 	addr := envOr("ADDR", ":8081")
 
-	db, err := client.Open(dir)
+	db, err := sqlitedb.Open(dir)
 	if err != nil {
-		log.Fatalf("client.Open に失敗: %v", err)
+		log.Fatalf("sqlitedb.Open に失敗: %v", err)
 	}
 	defer db.Close() //nolint:errcheck
 

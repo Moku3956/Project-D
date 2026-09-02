@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/Moku3956/Project-D/client"
 	"github.com/Moku3956/Project-D/sql-monster/internal/game"
+	"github.com/Moku3956/Project-D/sql-monster/internal/sqlitedb"
 	"github.com/Moku3956/Project-D/types"
 )
 
@@ -64,14 +64,14 @@ func (s *session) log(format string, args ...interface{}) {
 
 // Server はHTTPハンドラと進行中バトルの保持を担う。
 type Server struct {
-	db *client.DB
+	db *sqlitedb.DB
 
 	mu       sync.Mutex
 	sessions map[string]*session
 	seq      int
 }
 
-func NewServer(db *client.DB) *Server {
+func NewServer(db *sqlitedb.DB) *Server {
 	return &Server{db: db, sessions: make(map[string]*session)}
 }
 
@@ -328,7 +328,7 @@ func (s *Server) startSession(m game.Monster) (*session, error) {
 }
 
 // runPhaseQuery は現在のフェーズに対応する処理を実行する。呼び出し側でロック済みであること。
-func (s *Server) runPhaseQuery(sess *session, sql string) (*client.Result, error) {
+func (s *Server) runPhaseQuery(sess *session, sql string) (*sqlitedb.Result, error) {
 	switch sess.phase {
 	case PhaseAttackAnalysis:
 		result, err := sess.battle.AnalyzeWeakness(sql)
@@ -528,17 +528,17 @@ type errorResponse struct {
 
 // scanName はプランが選んだスキャン戦略を文字列にする。
 // 精密なクエリ(IndexScan)かどうかがクリティカル判定の材料になる(spec.md参照)。
-func scanName(k client.ScanKind) string {
+func scanName(k sqlitedb.ScanKind) string {
 	switch k {
-	case client.ScanIndex:
+	case sqlitedb.ScanIndex:
 		return "index"
-	case client.ScanSequential:
+	case sqlitedb.ScanSequential:
 		return "sequential"
 	}
 	return "none"
 }
 
-func marshalRows(result *client.Result) ([]string, [][]interface{}) {
+func marshalRows(result *sqlitedb.Result) ([]string, [][]interface{}) {
 	if result.Schema == nil || len(result.Rows) == 0 {
 		return nil, nil
 	}

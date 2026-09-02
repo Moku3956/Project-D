@@ -1,11 +1,14 @@
-// Package game はsql-monsterの対戦ロジックを担う。Project-Dへは client パッケージ
-// 経由でのみアクセスし、executor/planner/txn などの内部パッケージには触れない。
+// Package game はsql-monsterの対戦ロジックを担う。
+//
+// DBは internal/sqlitedb (SQLite) 経由でのみアクセスする。Project-D本体の
+// clientパッケージではなくSQLiteを使っているのは、算術演算子(hp - 50等)が
+// Project-D本体のSQL言語にまだ実装されていないため(sqlitedbのパッケージコメント参照)。
 package game
 
 import (
 	"fmt"
 
-	"github.com/Moku3956/Project-D/client"
+	"github.com/Moku3956/Project-D/sql-monster/internal/sqlitedb"
 	"github.com/Moku3956/Project-D/types"
 )
 
@@ -59,7 +62,7 @@ var tables = []struct {
 
 // SetupSchema はsql-monsterが使うテーブルを作成する。既に存在するテーブルは飛ばすので、
 // 2回目以降の起動でもそのまま呼べる。
-func SetupSchema(db *client.DB) error {
+func SetupSchema(db *sqlitedb.DB) error {
 	for _, t := range tables {
 		if tableExists(db, t.name) {
 			continue
@@ -73,14 +76,14 @@ func SetupSchema(db *client.DB) error {
 
 // tableExists はテーブルへのSELECTが通るかどうかで存在を判定する。
 // clientパッケージにはカタログを覗くAPIがないため、この方法をとっている。
-func tableExists(db *client.DB, name string) bool {
+func tableExists(db *sqlitedb.DB, name string) bool {
 	_, err := db.Exec(fmt.Sprintf("SELECT * FROM %s", name))
 	return err == nil
 }
 
 // SeedAll は初回起動時にモンスター・プレイヤー・進行状況の初期レコードを投入する。
 // 既にモンスターが入っていれば何もしない。
-func SeedAll(db *client.DB) error {
+func SeedAll(db *sqlitedb.DB) error {
 	existing, err := db.Exec("SELECT id FROM monsters")
 	if err != nil {
 		return fmt.Errorf("SeedAll: %w", err)
@@ -102,7 +105,7 @@ func SeedAll(db *client.DB) error {
 }
 
 // SeedMonster はモンスター1体分のレコードをmonsters/monster_attacks/monster_weaknessesに投入する。
-func SeedMonster(db *client.DB, m Monster) error {
+func SeedMonster(db *sqlitedb.DB, m Monster) error {
 	insertMonster := fmt.Sprintf(
 		"INSERT INTO monsters VALUES (%d, '%s', %d, '%s')",
 		m.ID, m.Name, m.HP, m.Weakness,
@@ -134,7 +137,7 @@ func SeedMonster(db *client.DB, m Monster) error {
 }
 
 // SeedPlayer はプレイヤー1人分のレコードをplayersに投入する。
-func SeedPlayer(db *client.DB, playerID, hp int64) error {
+func SeedPlayer(db *sqlitedb.DB, playerID, hp int64) error {
 	sql := fmt.Sprintf("INSERT INTO players VALUES (%d, %d)", playerID, hp)
 	if _, err := db.Exec(sql); err != nil {
 		return fmt.Errorf("SeedPlayer(%d): %w", playerID, err)
@@ -143,7 +146,7 @@ func SeedPlayer(db *client.DB, playerID, hp int64) error {
 }
 
 // ResetHP はモンスターとプレイヤーのHPを最大値に戻す。バトル開始・やり直しのたびに呼ぶ。
-func ResetHP(db *client.DB, m Monster) error {
+func ResetHP(db *sqlitedb.DB, m Monster) error {
 	if _, err := db.Exec(fmt.Sprintf("UPDATE monsters SET hp = %d WHERE id = %d", m.HP, m.ID)); err != nil {
 		return fmt.Errorf("ResetHP: monster %d: %w", m.ID, err)
 	}
@@ -154,7 +157,7 @@ func ResetHP(db *client.DB, m Monster) error {
 }
 
 // ClearedIDs はクリア済みのモンスターIDの集合を返す。
-func ClearedIDs(db *client.DB) (map[int64]bool, error) {
+func ClearedIDs(db *sqlitedb.DB) (map[int64]bool, error) {
 	result, err := db.Exec("SELECT monster_id, cleared FROM player_progress")
 	if err != nil {
 		return nil, fmt.Errorf("ClearedIDs: %w", err)
@@ -177,7 +180,7 @@ func ClearedIDs(db *client.DB) (map[int64]bool, error) {
 }
 
 // MarkCleared は指定モンスターをクリア済みにする。
-func MarkCleared(db *client.DB, monsterID int64) error {
+func MarkCleared(db *sqlitedb.DB, monsterID int64) error {
 	sql := fmt.Sprintf("UPDATE player_progress SET cleared = 1 WHERE monster_id = %d", monsterID)
 	if _, err := db.Exec(sql); err != nil {
 		return fmt.Errorf("MarkCleared(%d): %w", monsterID, err)

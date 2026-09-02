@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/Moku3956/Project-D/client"
+	"github.com/Moku3956/Project-D/sql-monster/internal/sqlitedb"
 	"github.com/Moku3956/Project-D/types"
 )
 
@@ -20,7 +20,7 @@ type Resources struct {
 
 // Battle はplayerIDとmonsterIDの対戦1回分を表す。
 type Battle struct {
-	db        *client.DB
+	db        *sqlitedb.DB
 	playerID  int64
 	monsterID int64
 	maxRes    Resources
@@ -33,7 +33,7 @@ type Battle struct {
 
 // NewBattle はplayerID・monsterIDの対戦を開始する。プレイヤー・モンスターの
 // レコードは事前にSeedPlayer/SeedMonsterで投入済みであること。
-func NewBattle(db *client.DB, playerID, monsterID int64, maxRes Resources) (*Battle, error) {
+func NewBattle(db *sqlitedb.DB, playerID, monsterID int64, maxRes Resources) (*Battle, error) {
 	b := &Battle{db: db, playerID: playerID, monsterID: monsterID, maxRes: maxRes}
 	if err := b.NextTurn(); err != nil {
 		return nil, err
@@ -68,17 +68,17 @@ func (b *Battle) MaxResources() Resources { return b.maxRes }
 func (b *Battle) MonsterID() int64 { return b.monsterID }
 
 // AnalyzeWeakness はモンスターの弱点データに対するSELECTを実行する(①攻撃用分析)。
-func (b *Battle) AnalyzeWeakness(sql string) (*client.Result, error) {
+func (b *Battle) AnalyzeWeakness(sql string) (*sqlitedb.Result, error) {
 	return b.analyze(sql)
 }
 
 // AnalyzeDefense はモンスターの攻撃手がかりに対するSELECTを実行する(③防御用分析)。
-func (b *Battle) AnalyzeDefense(sql string) (*client.Result, error) {
+func (b *Battle) AnalyzeDefense(sql string) (*sqlitedb.Result, error) {
 	return b.analyze(sql)
 }
 
 // analyze はSELECTを実行し、読んだ行数ぶん分析リソースを消費する。
-func (b *Battle) analyze(sql string) (*client.Result, error) {
+func (b *Battle) analyze(sql string) (*sqlitedb.Result, error) {
 	result, err := b.db.Exec(sql)
 	if err != nil {
 		return nil, err
@@ -91,16 +91,18 @@ func (b *Battle) analyze(sql string) (*client.Result, error) {
 // 実測する(②攻撃)。差分が攻撃防御リソースの残量を超える場合はROLLBACKして
 // 不発になる(dealt=0, ok=false, err=nil)。
 //
-// 現状の言語には算術式(hp - 50 等)がないため、呼び出し元のSQLは
-// SET hp = <絶対値> の形で書く必要がある。project_issues.mdの
-// 「算術演算子が言語に存在しない」が解消され次第、この制約はなくなる。
+// SQLiteを使っているため SET hp = hp - 50 のような算術式がそのまま書ける
+// (sqlitedbパッケージのコメント参照。Project-D本体のSQL言語にはまだ算術演算子がない)。
 func (b *Battle) Attack(sql string) (dealt int64, ok bool, err error) {
 	before, err := b.MonsterHP()
 	if err != nil {
 		return 0, false, err
 	}
 
-	tx := b.db.Begin()
+	tx, err := b.db.Begin()
+	if err != nil {
+		return 0, false, err
+	}
 	if _, err := tx.Exec(sql); err != nil {
 		_ = tx.Rollback()
 		return 0, false, err
@@ -139,7 +141,7 @@ func (b *Battle) Attack(sql string) (dealt int64, ok bool, err error) {
 // Defend はmonster_attacksに対するWHERE付きSELECTを実行する(④防御)。
 // ブロック率(1/該当行数、含まれなければ0)を判定し、被ダメージをplayersに反映する。
 // 精密な的中(ブロック率100%)ならHP増加ボーナスも与える。
-func (b *Battle) Defend(sql string) (result *client.Result, blockRate float64, damageTaken int64, err error) {
+func (b *Battle) Defend(sql string) (result *sqlitedb.Result, blockRate float64, damageTaken int64, err error) {
 	result, err = b.analyze(sql)
 	if err != nil {
 		return nil, 0, 0, err
