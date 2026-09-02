@@ -63,6 +63,7 @@ function truncateCells(rows: unknown[][], newPKs: Set<unknown>): Cell[] {
 }
 
 function leafWidth(cells: Cell[]): number {
+  if (cells.length === 0) return CELL_W // 空リーフの「(空)」表示ぶんの最低幅
   return cells.reduce((w, c) => w + (c.kind === 'omit' ? OMIT_W : CELL_W), 0)
 }
 

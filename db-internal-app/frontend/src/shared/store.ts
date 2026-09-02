@@ -3,7 +3,16 @@ import { execSql, resetSession } from './api'
 import type { ExecResponse, TreeSnapshot } from './types'
 
 const DEFAULT_TABLE = 'users'
-const DEFAULT_SQL = `CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))`
+
+// 1ページ(4KB)に3〜4件しか入らないよう、わざと長いnameで1件あたりのバイト数を
+// 稼ぐ(実データの話。表示側は features/storage/layout.ts の truncateField で
+// 常に短く見せる)。VARCHAR宣言は今のexecutor/plannerでは検証されていない
+// (project_issuesの既知の課題)ため実際は好きな長さを入れられるが、その課題が
+// 直った時にこのアプリだけ壊れないよう、テーブル自体をこの長さで宣言しておく。
+const NAME_COLUMN_LENGTH = 700
+
+const INIT_SQL = `CREATE TABLE ${DEFAULT_TABLE} (id INT PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
+const EDITOR_PLACEHOLDER_SQL = `INSERT INTO ${DEFAULT_TABLE} VALUES (1, 'Alice')`
 
 type State = {
   sql: string
@@ -16,8 +25,12 @@ type State = {
    * 「新規に増えたKV」のハイライトに使う簡易diff(先頭カラムをPKとみなす)。 */
   newPKs: Set<unknown>
   setSql: (sql: string) => void
+  /** セッション開始時に自動で呼ぶ。デモ用テーブルを自分で作らせるのは
+   * ユーザーにとって無駄な手順、というユーザー指示により、初回アクセス
+   * (またはリセット後)に自動でCREATE TABLEしておく。 */
+  init: () => Promise<void>
   run: () => Promise<void>
-  /** id昇順でn件のダミー行を連続INSERTする。1ページに収まる件数(数十〜百件超)を
+  /** id昇順でn件のダミー行を連続INSERTする。1ページに収まる件数(実測3〜4件)を
    * 手でクリックせずに超えられるようにするための、フロントエンド側の便宜機能
    * (SQL言語自体に複数行INSERTを追加したわけではない)。 */
   seedMany: (n: number) => Promise<void>
@@ -44,14 +57,8 @@ function diffNewPKs(prevTree: TreeSnapshot | null, nextTree: TreeSnapshot | null
   return diff
 }
 
-// 1ページ(4KB)に3〜4件しか入らないよう、わざと長いnameで1件あたりのバイト数を
-// 稼ぐ(実データの話。表示側は features/storage/layout.ts の truncateField で
-// 常に短く見せる)。VARCHAR(50)という宣言は今のexecutor/plannerでは検証されて
-// いない(project_issuesの既知の課題)ため、実際は好きな長さを入れられる。
-const PADDED_NAME_LENGTH = 700
-
 function paddedSeedName(id: number): string {
-  return `seed-${id}`.padEnd(PADDED_NAME_LENGTH, 'x')
+  return `seed-${id}`.padEnd(NAME_COLUMN_LENGTH, 'x')
 }
 
 function maxNumericId(tree: TreeSnapshot | null): number {
@@ -67,8 +74,18 @@ function maxNumericId(tree: TreeSnapshot | null): number {
   return max
 }
 
+/** セッションのDBに(まだなければ)デモ用テーブルを作る。他人と共有するセッション
+ * ではない前提だが、既に存在する場合はcatalog.goの"table \"users\" already
+ * exists"エラーが返るだけなので、それは無視して現在の木を取得し直す。 */
+async function ensureTable(): Promise<ExecResponse> {
+  const result = await execSql(INIT_SQL, DEFAULT_TABLE)
+  if (!result.error) return result
+  if (!result.error.includes('already exists')) return result
+  return execSql(`SELECT * FROM ${DEFAULT_TABLE}`, DEFAULT_TABLE)
+}
+
 export const useDbInternal = create<State>((set, get) => ({
-  sql: DEFAULT_SQL,
+  sql: EDITOR_PLACEHOLDER_SQL,
   table: DEFAULT_TABLE,
   busy: false,
   error: null,
@@ -77,6 +94,20 @@ export const useDbInternal = create<State>((set, get) => ({
   newPKs: new Set(),
 
   setSql: (sql) => set({ sql }),
+
+  init: async () => {
+    set({ busy: true, error: null })
+    try {
+      const result = await ensureTable()
+      if (result.error) {
+        set({ busy: false, error: result.error })
+        return
+      }
+      set({ busy: false, lastResult: result, tree: result.tree ?? null })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
 
   run: async () => {
     const { sql, table, tree: prevTree } = get()
@@ -140,7 +171,8 @@ export const useDbInternal = create<State>((set, get) => ({
     set({ busy: true, error: null })
     try {
       await resetSession()
-      set({ busy: false, lastResult: null, tree: null, newPKs: new Set(), sql: DEFAULT_SQL })
+      set({ busy: false, lastResult: null, tree: null, newPKs: new Set(), sql: EDITOR_PLACEHOLDER_SQL })
+      await get().init()
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
     }

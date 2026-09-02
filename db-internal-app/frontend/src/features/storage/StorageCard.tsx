@@ -66,9 +66,7 @@ export function StorageCard() {
         {tree ? (
           <TreeDiagram tree={tree} newPKs={highlightedPKs} />
         ) : (
-          <p className="pt-4 text-sm text-muted">
-            まだテーブルがありません。右のエディターでCREATE TABLEを実行してください。
-          </p>
+          <p className="pt-4 text-sm text-muted">読み込み中…</p>
         )}
       </div>
 
