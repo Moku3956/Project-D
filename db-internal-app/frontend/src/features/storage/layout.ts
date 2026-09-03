@@ -1,4 +1,5 @@
 import type { PageSnapshot, TreeSnapshot } from '../../shared/types'
+import { stripPadding } from './displayValue'
 
 export const CELL_W = 84
 export const CELL_H = 34
@@ -34,19 +35,11 @@ export type Layout = { nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; 
 
 const MAX_FIELD_LEN = 12
 
-/** shared/store.tsのpaddedSeedId()が作る「ゼロ埋め数値+xを連ねたパディング」
- * を検出したら、パディング部分を無視して素の数値だけを見せる。それ以外の
- * 値はそのまま返す。 */
-function stripPadding(s: string): string {
-  const m = /^(\d+)x{10,}$/.exec(s)
-  return m ? String(Number(m[1])) : s
-}
-
 /** 1フィールドの表示を短く切り詰める。分岐を起こしやすくするためseedMany側で
  * わざと長いidを入れることがあるが、表示は常にダミーだと分かる簡潔な値にする
  * (実データの長さ・パディングの都合と見た目は別の話、というユーザー指示による)。 */
 function truncateField(v: unknown): string {
-  const s = stripPadding(String(v))
+  const s = stripPadding(v)
   return s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) + '…' : s
 }
 
