@@ -17,7 +17,6 @@ const ID_COLUMN_LENGTH = 600
 const NAME_COLUMN_LENGTH = 50 // nameはもうパディングしないので実際の値で足りる長さ
 
 const INIT_SQL = `CREATE TABLE ${DEFAULT_TABLE} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
-const EDITOR_PLACEHOLDER_SQL = `INSERT INTO ${DEFAULT_TABLE} VALUES ('1', 'Alice')`
 
 type State = {
   sql: string
@@ -100,7 +99,7 @@ async function ensureTable(): Promise<ExecResponse> {
 }
 
 export const useDbInternal = create<State>((set, get) => ({
-  sql: EDITOR_PLACEHOLDER_SQL,
+  sql: '',
   table: DEFAULT_TABLE,
   busy: false,
   error: null,
@@ -189,7 +188,7 @@ export const useDbInternal = create<State>((set, get) => ({
     set({ busy: true, error: null })
     try {
       await resetSession()
-      set({ busy: false, lastResult: null, tree: null, newPKs: new Set(), sql: EDITOR_PLACEHOLDER_SQL })
+      set({ busy: false, lastResult: null, tree: null, newPKs: new Set(), sql: '' })
       await get().init()
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
