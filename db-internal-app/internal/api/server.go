@@ -23,6 +23,7 @@ func NewServer(dataDir string) *Server {
 // RegisterRoutes はハンドラをmuxに登録する。
 func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", s.handleHealth)
+	mux.HandleFunc("GET /api/tables", s.handleTables)
 	mux.HandleFunc("POST /api/exec", s.handleExec)
 	mux.HandleFunc("POST /api/reset", s.handleReset)
 }
@@ -91,6 +92,37 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type tableInfoJSON struct {
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+}
+
+// handleTables はセッション内の全テーブル(名前・カラム一覧)を返す
+// (テーブル切り替えタブUI用)。
+func (s *Server) handleTables(w http.ResponseWriter, r *http.Request) {
+	sid, err := s.sessionID(w, r)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sess, err := s.sessions.getOrCreate(sid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	tables, err := sess.Tables()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]tableInfoJSON, len(tables))
+	for i, t := range tables {
+		out[i] = tableInfoJSON{Name: t.Name, Columns: t.Columns}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request) {

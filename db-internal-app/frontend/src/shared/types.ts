@@ -1,3 +1,9 @@
+/** Goの db-internal-app/internal/api.tableInfoJSON と対応する。 */
+export type TableInfo = {
+  name: string
+  columns: string[]
+}
+
 /** Goの db-internal-app/internal/api.execResponse と対応する。 */
 export type ExecResponse = {
   columns?: string[]

@@ -9,15 +9,19 @@ type Tab = 'table' | 'tree'
 export function StorageCard() {
   const tree = useDbInternal((s) => s.tree)
   const newPKs = useDbInternal((s) => s.newPKs)
+  const currentTable = useDbInternal((s) => s.currentTable)
+  const tables = useDbInternal((s) => s.tables)
   const [tab, setTab] = useState<Tab>('table')
   const [expanded, setExpanded] = useState(false)
+
+  const columns = tables.find((t) => t.name === currentTable)?.columns ?? []
 
   return (
     <div className="rounded-2xl border border-line bg-surface p-7 shadow-sm">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-ink">
-            {tab === 'table' ? 'テーブル(users)' : 'B+Tree ページ構造'}
+            {tab === 'table' ? `テーブル(${currentTable})` : 'B+Tree ページ構造'}
           </h2>
           <p className="pt-1 text-xs text-muted">
             {tab === 'table' ? '見た目はただのテーブルですが…' : '実際はこうやって保存されています。本来は、すごい平べったいです！'}
@@ -55,7 +59,7 @@ export function StorageCard() {
         {!tree ? (
           <p className="pt-1 text-sm text-muted">読み込み中…</p>
         ) : tab === 'table' ? (
-          <DataTable tree={tree} />
+          <DataTable tree={tree} columns={columns} />
         ) : (
           <TreeDiagram tree={tree} newPKs={newPKs} />
         )}

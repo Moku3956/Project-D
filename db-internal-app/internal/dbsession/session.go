@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/Moku3956/Project-D/catalog"
 	"github.com/Moku3956/Project-D/executor"
@@ -116,6 +117,32 @@ func (s *Session) Exec(sql string) (*executor.Result, error) {
 		return nil, err
 	}
 	return s.eng.Execute(node)
+}
+
+// TableInfo は1テーブルのメタ情報(テーブル切り替えUI用)。
+type TableInfo struct {
+	Name    string
+	Columns []string
+}
+
+// Tables はセッション内に存在する全テーブルの名前・カラム一覧を、名前の
+// 辞書順で返す(catalog.TableNamesはmapのイテレーション順で不定なため)。
+func (s *Session) Tables() ([]TableInfo, error) {
+	names := s.cat.TableNames()
+	sort.Strings(names)
+	infos := make([]TableInfo, len(names))
+	for i, name := range names {
+		schema, err := s.cat.GetSchema(name)
+		if err != nil {
+			return nil, fmt.Errorf("tables: %w", err)
+		}
+		cols := make([]string, len(schema.Columns))
+		for j, c := range schema.Columns {
+			cols[j] = c.Name
+		}
+		infos[i] = TableInfo{Name: name, Columns: cols}
+	}
+	return infos, nil
 }
 
 // DumpTree はtableのB+Treeを現在の状態でスナップショットする

@@ -1,8 +1,6 @@
 import type { TreeSnapshot } from '../../shared/types'
 import { stripPadding } from './displayValue'
 
-const COLUMNS = ['id', 'name']
-
 /** TreeSnapshotの全葉ページからKVを集めて、普通のテーブル(行・列)として
  * 表示する。B+Treeのページ構造(内部の保存のされ方)と対比して、「見た目は
  * ただのテーブルだが、実際はこう保存されている」というのを伝えるための表示。
@@ -13,11 +11,18 @@ function collectRows(tree: TreeSnapshot): unknown[][] {
     if (!page.isLeaf || !page.rows) continue
     rows.push(...page.rows)
   }
-  rows.sort((a, b) => Number(stripPadding(a[0])) - Number(stripPadding(b[0])))
+  // usersのidは数値ベースの想定だが、任意テーブルのPKは数値とは限らないため
+  // 数値比較できなければ文字列としてソートする。
+  rows.sort((a, b) => {
+    const na = Number(stripPadding(a[0]))
+    const nb = Number(stripPadding(b[0]))
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb
+    return String(stripPadding(a[0])).localeCompare(String(stripPadding(b[0])))
+  })
   return rows
 }
 
-export function DataTable({ tree }: { tree: TreeSnapshot }) {
+export function DataTable({ tree, columns }: { tree: TreeSnapshot; columns: string[] }) {
   const rows = collectRows(tree)
 
   return (
@@ -25,7 +30,7 @@ export function DataTable({ tree }: { tree: TreeSnapshot }) {
       <table className="w-full text-left text-sm">
         <thead>
           <tr className="border-b border-line bg-bg">
-            {COLUMNS.map((c) => (
+            {columns.map((c) => (
               <th key={c} className="px-4 py-2 font-mono text-xs font-bold text-muted">
                 {c}
               </th>
@@ -35,7 +40,7 @@ export function DataTable({ tree }: { tree: TreeSnapshot }) {
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={COLUMNS.length} className="px-4 py-3 text-xs text-muted">
+              <td colSpan={columns.length} className="px-4 py-3 text-xs text-muted">
                 まだ行がありません
               </td>
             </tr>

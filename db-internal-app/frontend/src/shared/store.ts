@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { execSql, resetSession } from './api'
-import type { ExecResponse, TreeSnapshot } from './types'
+import { execSql, listTables, resetSession } from './api'
+import type { ExecResponse, TableInfo, TreeSnapshot } from './types'
 
 const DEFAULT_TABLE = 'users'
 
@@ -20,7 +20,12 @@ const INIT_SQL = `CREATE TABLE ${DEFAULT_TABLE} (id VARCHAR(${ID_COLUMN_LENGTH})
 
 type State = {
   sql: string
-  table: string
+  /** 現在選択中(表示対象)のテーブル名。エディターのSQLはこのテーブル宛とは
+   * 限らない(CREATE TABLE等で別名を指定できる)が、実行後にB+Treeをダンプ
+   * するのは常にこのテーブル。 */
+  currentTable: string
+  /** セッション内に存在する全テーブル(タブ切り替えUI用)。名前の辞書順。 */
+  tables: TableInfo[]
   busy: boolean
   error: string | null
   lastResult: ExecResponse | null
@@ -38,6 +43,9 @@ type State = {
    * 手でクリックせずに超えられるようにするための、フロントエンド側の便宜機能
    * (SQL言語自体に複数行INSERTを追加したわけではない)。 */
   seedMany: (n: number) => Promise<void>
+  /** タブをクリックしたときに呼ぶ。選択テーブルを切り替えて、そのテーブルの
+   * 現在のデータ・B+Treeを取り直す。 */
+  switchTable: (name: string) => Promise<void>
   reset: () => Promise<void>
 }
 
@@ -100,7 +108,8 @@ async function ensureTable(): Promise<ExecResponse> {
 
 export const useDbInternal = create<State>((set, get) => ({
   sql: '',
-  table: DEFAULT_TABLE,
+  currentTable: DEFAULT_TABLE,
+  tables: [],
   busy: false,
   error: null,
   lastResult: null,
@@ -117,26 +126,31 @@ export const useDbInternal = create<State>((set, get) => ({
         set({ busy: false, error: result.error })
         return
       }
-      set({ busy: false, lastResult: result, tree: result.tree ?? null })
+      const tables = await listTables()
+      set({ busy: false, lastResult: result, tree: result.tree ?? null, tables })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
     }
   },
 
   run: async () => {
-    const { sql, table, tree: prevTree } = get()
+    const { sql, currentTable, tree: prevTree } = get()
     set({ busy: true, error: null })
     try {
-      const result = await execSql(sql, table)
+      const result = await execSql(sql, currentTable)
       if (result.error) {
         set({ busy: false, error: result.error })
         return
       }
+      // CREATE/DROP TABLE等でテーブル一覧が変わっている可能性があるため、
+      // 実行のたびにタブ一覧も取り直す。
+      const tables = await listTables()
       set({
         busy: false,
         lastResult: result,
         tree: result.tree ?? prevTree,
         newPKs: diffNewPKs(prevTree, result.tree ?? null),
+        tables,
       })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
@@ -144,7 +158,7 @@ export const useDbInternal = create<State>((set, get) => ({
   },
 
   seedMany: async (n) => {
-    const { table, tree: prevTree } = get()
+    const { currentTable, tree: prevTree } = get()
     set({ busy: true, error: null })
     const BATCH_SIZE = 25 // 直列だと数千件で数分かかるため、まとめて並行実行する
     try {
@@ -160,8 +174,8 @@ export const useDbInternal = create<State>((set, get) => ({
             const id = startId + batchStart + k
             const wantTree = batchStart + k === n
             return execSql(
-              `INSERT INTO ${table} VALUES ('${paddedSeedId(id)}', '${seedName(id)}')`,
-              wantTree ? table : undefined,
+              `INSERT INTO ${currentTable} VALUES ('${paddedSeedId(id)}', '${seedName(id)}')`,
+              wantTree ? currentTable : undefined,
             )
           }),
         )
@@ -184,11 +198,33 @@ export const useDbInternal = create<State>((set, get) => ({
     }
   },
 
+  switchTable: async (name) => {
+    set({ busy: true, error: null, currentTable: name })
+    try {
+      const result = await execSql(`SELECT * FROM ${name}`, name)
+      if (result.error) {
+        set({ busy: false, error: result.error, tree: null, newPKs: new Set() })
+        return
+      }
+      set({ busy: false, lastResult: result, tree: result.tree ?? null, newPKs: new Set() })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
   reset: async () => {
     set({ busy: true, error: null })
     try {
       await resetSession()
-      set({ busy: false, lastResult: null, tree: null, newPKs: new Set(), sql: '' })
+      set({
+        busy: false,
+        lastResult: null,
+        tree: null,
+        newPKs: new Set(),
+        sql: '',
+        currentTable: DEFAULT_TABLE,
+        tables: [],
+      })
       await get().init()
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
