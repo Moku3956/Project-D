@@ -54,7 +54,7 @@ export function EditorPanel() {
           </button>
         </div>
         <p className="pt-2 text-[10px] leading-relaxed text-muted">
-          idをわざと長くして1ページ数件しか入らないようにしています(表示は簡潔なまま)。
+          一つのPageに少量のデータしか入らないようになってます。
         </p>
       </div>
 
