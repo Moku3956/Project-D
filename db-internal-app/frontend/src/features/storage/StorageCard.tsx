@@ -2,20 +2,11 @@ import { useState } from 'react'
 import { useDbInternal } from '../../shared/store'
 import { TreeDiagram } from './TreeDiagram'
 import { FitToScreen } from './FitToScreen'
-import { EXAMPLE_TREE } from './exampleTree'
-
-const EMPTY_NEW_PKS = new Set<unknown>()
-
-type Mode = 'real' | 'example'
 
 export function StorageCard() {
-  const liveTree = useDbInternal((s) => s.tree)
+  const tree = useDbInternal((s) => s.tree)
   const newPKs = useDbInternal((s) => s.newPKs)
-  const [mode, setMode] = useState<Mode>('real')
   const [expanded, setExpanded] = useState(false)
-
-  const tree = mode === 'real' ? liveTree : EXAMPLE_TREE
-  const highlightedPKs = mode === 'real' ? newPKs : EMPTY_NEW_PKS
 
   return (
     <div className="rounded-2xl border border-line bg-surface p-7 shadow-sm">
@@ -35,31 +26,9 @@ export function StorageCard() {
         )}
       </div>
 
-      <div className="mt-3 flex gap-1.5 rounded-full bg-bg p-1 text-xs font-bold">
-        <button
-          type="button"
-          onClick={() => setMode('real')}
-          className={`flex-1 rounded-full py-1.5 ${mode === 'real' ? 'bg-accent text-onaccent' : 'text-muted hover:text-ink'}`}
-        >
-          実データ
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('example')}
-          className={`flex-1 rounded-full py-1.5 ${mode === 'example' ? 'bg-accent text-onaccent' : 'text-muted hover:text-ink'}`}
-        >
-          イメージ図(例)
-        </button>
-      </div>
-      {mode === 'example' && (
-        <p className="pt-2 text-[11px] text-muted">
-          ※ 今のDBの中身とは無関係の作り物です。データが増えて何段にも育つとこんな形になる、という例です。
-        </p>
-      )}
-
       <div className="overflow-x-auto pt-3">
         {tree ? (
-          <TreeDiagram tree={tree} newPKs={highlightedPKs} />
+          <TreeDiagram tree={tree} newPKs={newPKs} />
         ) : (
           <p className="pt-4 text-sm text-muted">読み込み中…</p>
         )}
@@ -68,9 +37,7 @@ export function StorageCard() {
       {expanded && tree && (
         <div className="fixed inset-0 z-50 flex flex-col bg-surface">
           <div className="flex shrink-0 items-center justify-between border-b border-line px-8 py-5">
-            <h2 className="text-lg font-bold text-ink">
-              B+Tree ページ構造(拡大表示){mode === 'example' && ' — イメージ図(例)'}
-            </h2>
+            <h2 className="text-lg font-bold text-ink">B+Tree ページ構造(拡大表示)</h2>
             <button
               type="button"
               onClick={() => setExpanded(false)}
@@ -81,7 +48,7 @@ export function StorageCard() {
           </div>
           <div className="min-h-0 flex-1">
             <FitToScreen>
-              <TreeDiagram tree={tree} newPKs={highlightedPKs} />
+              <TreeDiagram tree={tree} newPKs={newPKs} />
             </FitToScreen>
           </div>
         </div>
