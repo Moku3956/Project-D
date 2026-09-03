@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useDbInternal } from '../../shared/store'
 import { TreeDiagram } from './TreeDiagram'
-import { ZoomPanCanvas } from './ZoomPanCanvas'
-import { IDENTITY_TRANSFORM, type ZoomTransform } from './zoom'
+import { FitToScreen } from './FitToScreen'
 import { EXAMPLE_TREE } from './exampleTree'
 
 const EMPTY_NEW_PKS = new Set<unknown>()
@@ -14,7 +13,6 @@ export function StorageCard() {
   const newPKs = useDbInternal((s) => s.newPKs)
   const [mode, setMode] = useState<Mode>('real')
   const [expanded, setExpanded] = useState(false)
-  const [transform, setTransform] = useState<ZoomTransform>(IDENTITY_TRANSFORM)
 
   const tree = mode === 'real' ? liveTree : EXAMPLE_TREE
   const highlightedPKs = mode === 'real' ? newPKs : EMPTY_NEW_PKS
@@ -29,10 +27,7 @@ export function StorageCard() {
         {tree && (
           <button
             type="button"
-            onClick={() => {
-              setTransform(IDENTITY_TRANSFORM)
-              setExpanded(true)
-            }}
+            onClick={() => setExpanded(true)}
             className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-2 text-xs font-bold text-onaccent hover:brightness-110"
           >
             ⤢ 拡大表示
@@ -76,28 +71,18 @@ export function StorageCard() {
             <h2 className="text-lg font-bold text-ink">
               B+Tree ページ構造(拡大表示){mode === 'example' && ' — イメージ図(例)'}
             </h2>
-            <div className="flex items-center gap-2">
-              <span className="pr-2 text-xs text-muted">ホイールで拡大縮小・ドラッグで移動できます</span>
-              <button
-                type="button"
-                onClick={() => setTransform(IDENTITY_TRANSFORM)}
-                className="rounded-full border border-line px-3.5 py-2 text-xs font-bold text-muted hover:text-ink"
-              >
-                ↺ もとに戻す
-              </button>
-              <button
-                type="button"
-                onClick={() => setExpanded(false)}
-                className="rounded-full bg-accent px-3.5 py-2 text-xs font-bold text-onaccent hover:brightness-110"
-              >
-                閉じる ✕
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              className="rounded-full bg-accent px-3.5 py-2 text-xs font-bold text-onaccent hover:brightness-110"
+            >
+              閉じる ✕
+            </button>
           </div>
           <div className="min-h-0 flex-1">
-            <ZoomPanCanvas transform={transform} onTransformChange={setTransform}>
+            <FitToScreen>
               <TreeDiagram tree={tree} newPKs={highlightedPKs} />
-            </ZoomPanCanvas>
+            </FitToScreen>
           </div>
         </div>
       )}
