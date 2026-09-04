@@ -66,8 +66,8 @@ const strings = {
   storageTableDesc: { ja: '見た目はただのテーブルですが…', en: "It looks like an ordinary table, but…" },
   storageTreeHeading: { ja: 'B+Tree ページ構造', en: 'B+Tree Page Structure' },
   storageTreeDesc: {
-    ja: '実際はこうやって保存されています。本来は、すごい平べったいです！',
-    en: "This is how it's actually stored. In reality it's much flatter!",
+    ja: '実際はこうやって保存されています！B+Treeではデータはすべて一番下の段に格納されます！',
+    en: "This is how it's actually stored. In a B+Tree, all data is stored in the bottom row!",
   },
   expand: { ja: '⤢ 拡大表示', en: '⤢ Expand' },
   tabTable: { ja: 'テーブル', en: 'Table' },

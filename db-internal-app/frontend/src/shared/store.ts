@@ -236,10 +236,12 @@ export const useDbInternal = create<State>((set, get) => ({
   createTable: async () => {
     const { tables } = get()
     const name = nextAutoTableName(tables)
-    const sql = `CREATE TABLE ${name} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
-    set({ busy: true, error: null, sql })
+    // 実行するCREATE TABLE文はエディターには表示しない(自動生成された裏側の
+    // クエリなので、ユーザー指示によりエディターの内容は変えない)。
+    const createSql = `CREATE TABLE ${name} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
+    set({ busy: true, error: null })
     try {
-      const result = await execSql(sql, name)
+      const result = await execSql(createSql, name)
       if (result.error) {
         set({ busy: false, error: result.error })
         return
