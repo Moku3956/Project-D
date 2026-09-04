@@ -46,6 +46,10 @@ type State = {
   /** タブをクリックしたときに呼ぶ。選択テーブルを切り替えて、そのテーブルの
    * 現在のデータ・B+Treeを取り直す。 */
   switchTable: (name: string) => Promise<void>
+  /** 「+ 新しいテーブル」ボタン用。t1, t2, ...という連番の名前でCREATE TABLEを
+   * 即実行し、そのテーブルに切り替える(エディターに入力するだけで実行は
+   * ユーザー任せ、という以前の挙動はユーザー指示によりやめた)。 */
+  createTable: () => Promise<void>
   reset: () => Promise<void>
 }
 
@@ -94,6 +98,17 @@ function maxNumericId(tree: TreeSnapshot | null): number {
     }
   }
   return max
+}
+
+/** 既存テーブル名から「t1, t2, ...」の次の連番を決める。t\d+という名前の
+ * テーブルの中の最大値+1(存在しなければt1から)。 */
+function nextAutoTableName(tables: TableInfo[]): string {
+  let max = 0
+  for (const t of tables) {
+    const m = /^t(\d+)$/.exec(t.name)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `t${max + 1}`
 }
 
 /** セッションのDBに(まだなければ)デモ用テーブルを作る。他人と共有するセッション
@@ -207,6 +222,31 @@ export const useDbInternal = create<State>((set, get) => ({
         return
       }
       set({ busy: false, lastResult: result, tree: result.tree ?? null, newPKs: new Set() })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  createTable: async () => {
+    const { tables } = get()
+    const name = nextAutoTableName(tables)
+    const sql = `CREATE TABLE ${name} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
+    set({ busy: true, error: null, sql })
+    try {
+      const result = await execSql(sql, name)
+      if (result.error) {
+        set({ busy: false, error: result.error })
+        return
+      }
+      const newTables = await listTables()
+      set({
+        busy: false,
+        lastResult: result,
+        tree: result.tree ?? null,
+        tables: newTables,
+        currentTable: name,
+        newPKs: new Set(),
+      })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
     }

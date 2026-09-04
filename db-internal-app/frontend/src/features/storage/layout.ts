@@ -3,6 +3,7 @@ import { stripPadding } from './displayValue'
 
 export const CELL_W = 84
 export const CELL_H = 34
+export const LEAF_LABEL_H = 16 // 葉の上部に表示するテーブル名ラベルの高さ
 const OMIT_W = 56
 const INTERNAL_W = 120
 const INTERNAL_H = 44
@@ -112,14 +113,22 @@ export function layoutTree(tree: TreeSnapshot, newPKs: Set<unknown>): Layout {
     const page = tree.pages[pageId]
     const y = depth * (INTERNAL_H + LEVEL_GAP)
     if (!page) {
-      nodes.push({ pageId, isLeaf: true, x: leftX + INTERNAL_W / 2, y, width: INTERNAL_W, height: CELL_H, cells: [] })
+      nodes.push({
+        pageId,
+        isLeaf: true,
+        x: leftX + INTERNAL_W / 2,
+        y,
+        width: INTERNAL_W,
+        height: CELL_H + LEAF_LABEL_H,
+        cells: [],
+      })
       return leftX + INTERNAL_W
     }
 
     if (page.isLeaf) {
       const cells = truncateCells(page.rows ?? [], newPKs)
       const width = Math.max(leafWidth(cells), 10)
-      nodes.push({ pageId, isLeaf: true, x: leftX + width / 2, y, width, height: CELL_H, cells })
+      nodes.push({ pageId, isLeaf: true, x: leftX + width / 2, y, width, height: CELL_H + LEAF_LABEL_H, cells })
       return leftX + width
     }
 

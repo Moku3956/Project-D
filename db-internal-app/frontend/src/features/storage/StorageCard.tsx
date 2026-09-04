@@ -61,7 +61,7 @@ export function StorageCard() {
         ) : tab === 'table' ? (
           <DataTable tree={tree} columns={columns} />
         ) : (
-          <TreeDiagram tree={tree} newPKs={newPKs} />
+          <TreeDiagram tree={tree} newPKs={newPKs} tableName={currentTable} />
         )}
       </div>
 
@@ -79,7 +79,7 @@ export function StorageCard() {
           </div>
           <div className="min-h-0 flex-1">
             <FitToScreen>
-              <TreeDiagram tree={tree} newPKs={newPKs} />
+              <TreeDiagram tree={tree} newPKs={newPKs} tableName={currentTable} />
             </FitToScreen>
           </div>
         </div>

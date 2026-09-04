@@ -1,39 +1,53 @@
-import { CELL_H, CELL_W, layoutTree, type Layout } from './layout'
+import { CELL_W, LEAF_LABEL_H, layoutTree, type Layout } from './layout'
 import type { TreeSnapshot } from '../../shared/types'
 
 const PADDING = 16
 
-function LeafBox({ node }: { node: Layout['nodes'][number] }) {
+function LeafBox({ node, tableName }: { node: Layout['nodes'][number]; tableName: string }) {
   return (
     <div
-      className="absolute flex overflow-hidden rounded-xl border border-line bg-surface shadow-sm"
-      style={{ left: node.x - node.width / 2 + PADDING, top: node.y + PADDING, width: node.width, height: CELL_H }}
+      className="absolute flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm"
+      style={{
+        left: node.x - node.width / 2 + PADDING,
+        top: node.y + PADDING,
+        width: node.width,
+        height: node.height,
+      }}
     >
-      {(node.cells ?? []).map((cell, i) =>
-        cell.kind === 'omit' ? (
-          <div
-            key={`omit-${i}`}
-            className="flex shrink-0 items-center justify-center bg-accent text-[10px] font-bold text-onaccent"
-            style={{ width: 56 }}
-          >
-            …{cell.count}件…
-          </div>
-        ) : (
-          <div
-            key={i}
-            className={`flex shrink-0 items-center justify-center border-l border-line px-1 font-mono text-[11px] first:border-l-0 ${
-              cell.isNew ? 'bg-orange-50 font-bold text-accent2' : 'bg-bg text-ink'
-            }`}
-            style={{ width: CELL_W }}
-            title={cell.text}
-          >
-            <span className="truncate">{cell.text}</span>
-          </div>
-        ),
-      )}
-      {(node.cells ?? []).length === 0 && (
-        <div className="flex w-full items-center justify-center text-[11px] text-muted">(空)</div>
-      )}
+      <div
+        className="flex shrink-0 items-center justify-center truncate border-b border-line bg-bg px-1 text-[9px] font-bold text-muted"
+        style={{ height: LEAF_LABEL_H }}
+        title={tableName}
+      >
+        {tableName}
+      </div>
+      <div className="flex flex-1 overflow-hidden">
+        {(node.cells ?? []).map((cell, i) =>
+          cell.kind === 'omit' ? (
+            <div
+              key={`omit-${i}`}
+              className="flex shrink-0 items-center justify-center bg-accent text-[10px] font-bold text-onaccent"
+              style={{ width: 56 }}
+            >
+              …{cell.count}件…
+            </div>
+          ) : (
+            <div
+              key={i}
+              className={`flex shrink-0 items-center justify-center border-l border-line px-1 font-mono text-[11px] first:border-l-0 ${
+                cell.isNew ? 'bg-orange-50 font-bold text-accent2' : 'bg-bg text-ink'
+              }`}
+              style={{ width: CELL_W }}
+              title={cell.text}
+            >
+              <span className="truncate">{cell.text}</span>
+            </div>
+          ),
+        )}
+        {(node.cells ?? []).length === 0 && (
+          <div className="flex w-full items-center justify-center text-[11px] text-muted">(空)</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -53,7 +67,15 @@ function InternalBox({ node, isRoot }: { node: Layout['nodes'][number]; isRoot: 
  * (直線接続・分岐条件は横線上・葉はKVを横並びセルで表現)を、任意の階層数・
  * 子ノード数に対応する形で描画する。等倍の生の大きさで描画するだけで、拡大縮小・
  * スクロールは呼び出し側(StorageCard)が担当する。 */
-export function TreeDiagram({ tree, newPKs }: { tree: TreeSnapshot; newPKs: Set<unknown> }) {
+export function TreeDiagram({
+  tree,
+  newPKs,
+  tableName,
+}: {
+  tree: TreeSnapshot
+  newPKs: Set<unknown>
+  tableName: string
+}) {
   const layout = layoutTree(tree, newPKs)
   const width = layout.width + PADDING * 2
   const height = layout.height + PADDING * 2
@@ -97,7 +119,7 @@ export function TreeDiagram({ tree, newPKs }: { tree: TreeSnapshot; newPKs: Set<
 
       {layout.nodes.map((n) =>
         n.isLeaf ? (
-          <LeafBox key={n.pageId} node={n} />
+          <LeafBox key={n.pageId} node={n} tableName={tableName} />
         ) : (
           <InternalBox key={n.pageId} node={n} isRoot={n.pageId === tree.rootPageId} />
         ),
