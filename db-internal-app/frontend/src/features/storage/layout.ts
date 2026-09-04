@@ -1,7 +1,9 @@
 import type { PageSnapshot, TreeSnapshot } from '../../shared/types'
+import { stripPadding } from './displayValue'
 
 export const CELL_W = 84
 export const CELL_H = 34
+export const LEAF_LABEL_H = 16 // 葉の上部に表示するテーブル名ラベルの高さ
 const OMIT_W = 56
 const INTERNAL_W = 120
 const INTERNAL_H = 44
@@ -12,6 +14,12 @@ const TAIL_COUNT = 4 // 先頭2件+末尾2件
 
 export type Cell = { kind: 'row'; text: string; isNew: boolean } | { kind: 'omit'; count: number }
 
+/** 1つの物理B+Treeを全テーブルで共有しているため、1ページ(葉)の中に複数
+ * テーブルの行が混在しうる。同じテーブルの行が連続する区間ごとにグループ化し、
+ * グループ単位でテーブル名ラベル+セル列を描画する(ユーザー指摘「同じページの
+ * 中にも違うテーブルのレコードが含まれることがある」への対応)。 */
+export type LeafGroup = { table: string; cells: Cell[] }
+
 export type LayoutNode = {
   pageId: number
   isLeaf: boolean
@@ -19,7 +27,7 @@ export type LayoutNode = {
   y: number
   width: number
   height: number
-  cells?: Cell[] // 葉のみ
+  groups?: LeafGroup[] // 葉のみ
 }
 
 export type LayoutEdge = {
@@ -32,14 +40,27 @@ export type LayoutEdge = {
 
 export type Layout = { nodes: LayoutNode[]; edges: LayoutEdge[]; width: number; height: number }
 
+const MAX_FIELD_LEN = 12
+
+/** 1フィールドの表示を短く切り詰める。分岐を起こしやすくするためseedMany側で
+ * わざと長いidを入れることがあるが、表示は常にダミーだと分かる簡潔な値にする
+ * (実データの長さ・パディングの都合と見た目は別の話、というユーザー指示による)。 */
+function truncateField(v: unknown): string {
+  const s = stripPadding(v)
+  return s.length > MAX_FIELD_LEN ? s.slice(0, MAX_FIELD_LEN) + '…' : s
+}
+
 /** rowsを「先頭2件＋省略＋末尾2件」に圧縮する(db-internal-app/docs/spec.md「Storage」参照)。
  * 全体が4件以下ならそのまま全件を返す。 */
 function truncateCells(rows: unknown[][], newPKs: Set<unknown>): Cell[] {
-  const toCell = (row: unknown[]): Cell => ({
-    kind: 'row',
-    text: row.length > 1 ? `${String(row[0])}: ${row.slice(1).map(String).join(', ')}` : String(row[0]),
-    isNew: newPKs.has(row[0]),
-  })
+  const toCell = (row: unknown[]): Cell => {
+    const fields = row.map(truncateField)
+    return {
+      kind: 'row',
+      text: fields.length > 1 ? `${fields[0]}: ${fields.slice(1).join(', ')}` : fields[0],
+      isNew: newPKs.has(row[0]),
+    }
+  }
   if (rows.length <= TAIL_COUNT) {
     return rows.map(toCell)
   }
@@ -50,24 +71,54 @@ function truncateCells(rows: unknown[][], newPKs: Set<unknown>): Cell[] {
 }
 
 function leafWidth(cells: Cell[]): number {
+  if (cells.length === 0) return CELL_W // 空リーフの「(空)」表示ぶんの最低幅
   return cells.reduce((w, c) => w + (c.kind === 'omit' ? OMIT_W : CELL_W), 0)
 }
 
-/** 内部ノードのchildren(セルのchild + RightmostChild)と、各境界のラベルを組み立てる。 */
+/** rowsをrowTables(同じ長さの並行配列)で「同じテーブルが連続する区間」ごとに
+ * 分割する。複合キーはtableIDを先頭に持つため、同じページ内の同テーブルの
+ * セルはソート順で連続しており、単純な隣接比較でグループ化できる。 */
+function groupByTable(rows: unknown[][], rowTables: string[] | undefined): { table: string; rows: unknown[][] }[] {
+  const groups: { table: string; rows: unknown[][] }[] = []
+  rows.forEach((row, i) => {
+    const table = rowTables?.[i] ?? ''
+    const last = groups[groups.length - 1]
+    if (last && last.table === table) {
+      last.rows.push(row)
+    } else {
+      groups.push({ table, rows: [row] })
+    }
+  })
+  return groups
+}
+
+function leafGroups(page: PageSnapshot | undefined, newPKs: Set<unknown>): LeafGroup[] {
+  const rawGroups = groupByTable(page?.rows ?? [], page?.rowTables)
+  return rawGroups.map((g) => ({ table: g.table, cells: truncateCells(g.rows, newPKs) }))
+}
+
+function groupsWidth(groups: LeafGroup[]): number {
+  if (groups.length === 0) return CELL_W // 空リーフの「(空)」表示ぶんの最低幅
+  return groups.reduce((w, g) => w + leafWidth(g.cells), 0)
+}
+
+/** 内部ノードのchildren(セルのchild + RightmostChild)と、各境界のラベルを組み立てる。
+ * keysはPKそのもの(パディングされた長い文字列のことがある)なので、ラベルは
+ * truncateFieldで必ず短く切り詰める。 */
 function childEdgesOf(page: PageSnapshot): { childID: number; label: string }[] {
   const keys = page.keys ?? []
   const children = page.childPageIds ?? []
   const out: { childID: number; label: string }[] = []
   children.forEach((childID, i) => {
     if (i === 0) {
-      out.push({ childID, label: keys[0] !== undefined ? `< ${keys[0]}` : '' })
+      out.push({ childID, label: keys[0] !== undefined ? `< ${truncateField(keys[0])}` : '' })
     } else {
-      out.push({ childID, label: `${keys[i - 1]} 〜 <${keys[i]}` })
+      out.push({ childID, label: `${truncateField(keys[i - 1])} 〜 <${truncateField(keys[i])}` })
     }
   })
   if (page.rightmostChild !== undefined) {
     const last = keys[keys.length - 1]
-    out.push({ childID: page.rightmostChild, label: last !== undefined ? `>= ${last}` : '' })
+    out.push({ childID: page.rightmostChild, label: last !== undefined ? `>= ${truncateField(last)}` : '' })
   }
   return out
 }
@@ -82,7 +133,7 @@ export function layoutTree(tree: TreeSnapshot, newPKs: Set<unknown>): Layout {
     const page = tree.pages[pageId]
     if (!page) return INTERNAL_W
     if (page.isLeaf) {
-      return leafWidth(truncateCells(page.rows ?? [], newPKs))
+      return groupsWidth(leafGroups(page, newPKs))
     }
     const childEdges = childEdgesOf(page)
     if (childEdges.length === 0) return INTERNAL_W
@@ -95,14 +146,22 @@ export function layoutTree(tree: TreeSnapshot, newPKs: Set<unknown>): Layout {
     const page = tree.pages[pageId]
     const y = depth * (INTERNAL_H + LEVEL_GAP)
     if (!page) {
-      nodes.push({ pageId, isLeaf: true, x: leftX + INTERNAL_W / 2, y, width: INTERNAL_W, height: CELL_H, cells: [] })
+      nodes.push({
+        pageId,
+        isLeaf: true,
+        x: leftX + INTERNAL_W / 2,
+        y,
+        width: INTERNAL_W,
+        height: CELL_H + LEAF_LABEL_H,
+        groups: [],
+      })
       return leftX + INTERNAL_W
     }
 
     if (page.isLeaf) {
-      const cells = truncateCells(page.rows ?? [], newPKs)
-      const width = Math.max(leafWidth(cells), 10)
-      nodes.push({ pageId, isLeaf: true, x: leftX + width / 2, y, width, height: CELL_H, cells })
+      const groups = leafGroups(page, newPKs)
+      const width = Math.max(groupsWidth(groups), 10)
+      nodes.push({ pageId, isLeaf: true, x: leftX + width / 2, y, width, height: CELL_H + LEAF_LABEL_H, groups })
       return leftX + width
     }
 
