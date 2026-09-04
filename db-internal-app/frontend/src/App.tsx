@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { TopBar } from './shared/TopBar'
-import { EditorPanel } from './shared/EditorPanel'
+import { ControlsBar } from './shared/ControlsBar'
 import { StorageCard } from './features/storage/StorageCard'
 import { TableTabs } from './features/storage/TableTabs'
 import { useDbInternal } from './shared/store'
@@ -14,11 +14,9 @@ function App() {
     <div className="mx-auto max-w-[1200px] px-12">
       <TopBar />
       <TableTabs />
-      <div className="flex items-start gap-6 pb-12">
-        <div className="min-w-0 flex-1">
-          <StorageCard />
-        </div>
-        <EditorPanel />
+      <ControlsBar />
+      <div className="pb-12">
+        <StorageCard />
       </div>
     </div>
   )

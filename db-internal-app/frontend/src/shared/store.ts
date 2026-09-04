@@ -39,9 +39,10 @@ type State = {
    * (またはリセット後)に自動でCREATE TABLEしておく。 */
   init: () => Promise<void>
   run: () => Promise<void>
-  /** id昇順でn件のダミー行を連続INSERTする。1ページに収まる件数(実測数件)を
+  /** id昇順でn件のランダムな行を連続INSERTする。1ページに収まる件数(実測数件)を
    * 手でクリックせずに超えられるようにするための、フロントエンド側の便宜機能
-   * (SQL言語自体に複数行INSERTを追加したわけではない)。 */
+   * (SQL言語自体に複数行INSERTを追加したわけではない)。「Add Random」(n=1)と
+   * 「Bulk Insert」(n=任意件数)の両方がこれを呼ぶ。 */
   seedMany: (n: number) => Promise<void>
   /** タブをクリックしたときに呼ぶ。選択テーブルを切り替えて、そのテーブルの
    * 現在のデータ・B+Treeを取り直す。 */
@@ -84,8 +85,17 @@ function paddedSeedId(n: number): string {
   return numeric.padEnd(ID_COLUMN_LENGTH, 'x')
 }
 
-function seedName(n: number): string {
-  return `dummy-${n}`
+// 「dummy-*」ではなく実在の名前らしい値を入れたい、というユーザー指示による。
+// ダミーだと分かる無機質な値より、実データっぽい方がB+Treeの中身として自然に見える。
+const REALISTIC_NAMES = [
+  'Alice', 'Bob', 'Charlie', 'Diana', 'Ethan', 'Fiona', 'George', 'Hannah',
+  'Ivan', 'Julia', 'Kevin', 'Laura', 'Mike', 'Nina', 'Oscar', 'Paula',
+  'Quinn', 'Rachel', 'Sam', 'Tina', 'Uma', 'Victor', 'Wendy', 'Xander',
+  'Yara', 'Zoe',
+]
+
+function randomName(): string {
+  return REALISTIC_NAMES[Math.floor(Math.random() * REALISTIC_NAMES.length)]
 }
 
 /** 既存の行のPK(先頭6桁の数値部分)から次に使う番号を決める。手入力された
@@ -195,7 +205,7 @@ export const useDbInternal = create<State>((set, get) => ({
             const id = startId + batchStart + k
             const wantTree = batchStart + k === n
             return execSql(
-              `INSERT INTO ${currentTable} VALUES ('${paddedSeedId(id)}', '${seedName(id)}')`,
+              `INSERT INTO ${currentTable} VALUES ('${paddedSeedId(id)}', '${randomName()}')`,
               wantTree ? currentTable : undefined,
             )
           }),

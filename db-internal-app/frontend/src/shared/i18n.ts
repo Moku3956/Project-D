@@ -49,18 +49,21 @@ const strings = {
 
   editorTitle: { ja: 'エディター', en: 'Editor' },
   editorPlaceholder: {
-    ja: 'INSERT, DELETE, UPDATEを実行できます！',
-    en: 'You can run INSERT, DELETE, UPDATE!',
+    ja: 'INSERT, DELETE, UPDATEを自由に書けます',
+    en: 'Write INSERT, DELETE, UPDATE freely',
   },
   run: { ja: '実行 ▸', en: 'Run ▸' },
   running: { ja: '実行中…', en: 'Running…' },
-  seedTitle: { ja: '⚡ テスト用: まとめてダミー行を投入', en: '⚡ For testing: bulk-insert dummy rows' },
-  seedButton: { ja: '件まとめてINSERT ⚡', en: 'Bulk INSERT ⚡' },
-  seedButtonTitle: {
-    ja: 'idを自動採番してダミー行をまとめてINSERTする(1ページに収まらない件数を手でクリックせず試すための機能。エディターのSQLは実行しない)',
-    en: 'Auto-generates ids and bulk-inserts dummy rows (a shortcut to exceed one page without clicking by hand; does not run the SQL in the editor)',
+  addRandom: { ja: 'ランダム追加', en: 'Add Random' },
+  addRandomTitle: {
+    ja: 'idを自動採番し、実在しそうな名前を1件だけランダムでINSERTする',
+    en: 'Auto-generates an id and inserts one row with a realistic random name',
   },
-  seedHint: { ja: 'INSERT文が指定の回数実行されます!', en: 'The INSERT statement runs the given number of times!' },
+  bulkInsert: { ja: 'まとめて追加', en: 'Bulk Insert' },
+  bulkInsertTitle: {
+    ja: 'idを自動採番してランダムな行をまとめてINSERTする(1ページに収まらない件数を手でクリックせず試すための機能。エディターのSQLは実行しない)',
+    en: 'Auto-generates ids and bulk-inserts random rows (a shortcut to exceed one page without clicking by hand; does not run the SQL in the editor)',
+  },
 
   storageTableHeading: { ja: 'テーブル({table})', en: 'Table ({table})' },
   storageTableDesc: { ja: '見た目はただのテーブルですが…', en: "It looks like an ordinary table, but…" },
