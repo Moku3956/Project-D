@@ -100,6 +100,10 @@ CREATE TABLEしたテーブルにその後何度もINSERTし、B+Treeが分割�
 
 「dummy-1」のような無機質な連番名は、「dummy-*とかじゃない、リアルなランダム値を入れたいね」というユーザー指示によりやめ、実在の名前らしい単語のプール(`REALISTIC_NAMES`、Alice/Bob/Charlie...)からランダムに選ぶ方式にした(`randomName()`)。ランダム追加・まとめて追加の両方がこの関数を使うため、挙動は統一されている。
 
+**テーブルの行をクリックすると、その行の実際のPK値でUPDATE/DELETE文を組み立てる(バグ修正)。** 「ランダム追加」「まとめて追加」で作った行は、B+Treeの分岐を起こすためにPK(`id`)がパディングされた長い文字列になっている(表示は`stripPadding`で短く見せているだけ)。この状態で「update文がしっかり動かない」というユーザー報告があり、実機で調査したところ、エディターのUPDATE/DELETEテンプレートに表示上の短い値(例: `'1'`)を手入力しても、実際のPKと一致せず`affectedRows: 0`のまま何も起きていなかったことを確認した(curlで再現: 手打ちの短いPKで作った行はUPDATEが正しく効くが、パディングされたPKの行には効かない)。
+
+`SqlMode`・`buildTemplate`を`shared/sqlTemplates.ts`に切り出し、テーブルの行クリック(`DataTable.tsx`)でその行の生のPK値(パディング込み)をWHERE句にそのまま埋め込んだテンプレートをエディターに差し込むようにした(`store.ts`の`fillTemplateForRow`)。クリック時にINSERTモードだった場合は「既存行を触る操作」とみなしUPDATEに自動で切り替える。`sqlMode`(モード切り替えボタンの状態)は`ControlsBar`のローカルstateから`store.ts`に引き上げ、`DataTable`からも参照できるようにした。
+
 **日本語/英語の切り替えに対応した(ユーザー確定済み)。** 「JapaneseとEnglishの切り替えができるようにしよう」というユーザー指示による。`shared/i18n.ts`にキー→{ja, en}の対訳辞書と、現在の表示言語を保持するZustandストア(`useLocaleStore`)を実装した。`{name}`形式のプレースホルダー置換にのみ対応する簡易実装で、外部i18nライブラリは導入していない(文字列数が少なく、複数形/日付フォーマット等の複雑なルールが不要なため)。
 
 - 初期値は`localStorage`に保存済みの言語があればそれを使い、なければ`navigator.language`から自動判定する(日本語ブラウザなら`ja`、それ以外は`en`)。切り替え後の選択は`localStorage`(キー`db-internal-app:locale`)に保存し、次回訪問時も引き継ぐ。セッション(サーバー側の`db_internal_sid`)とは無関係の、純粋にブラウザ側だけの表示設定。

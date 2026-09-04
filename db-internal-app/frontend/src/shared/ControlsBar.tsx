@@ -1,29 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useDbInternal } from './store'
 import { useI18n } from './i18n'
+import { SQL_MODES } from './sqlTemplates'
 
 const DEFAULT_SEED_COUNT = 60
-
-type SqlMode = 'INSERT' | 'UPDATE' | 'DELETE'
-const MODES: SqlMode[] = ['INSERT', 'UPDATE', 'DELETE']
-
-/** モード切り替えボタンで、選択中テーブルのカラムに沿ったテンプレートSQLを
- * 組み立てる。値は空クオートのままにしておき、ユーザーがその場で埋める。
- * PKは先頭カラムという、このアプリの他の便宜機能(paddedSeedId等)と同じ
- * 前提を使う。 */
-function buildTemplate(mode: SqlMode, table: string, columns: string[]): string {
-  const cols = columns.length > 0 ? columns : ['id', 'name']
-  const pk = cols[0]
-  if (mode === 'INSERT') {
-    return `INSERT INTO ${table} VALUES (${cols.map(() => "''").join(', ')})`
-  }
-  if (mode === 'DELETE') {
-    return `DELETE FROM ${table} WHERE ${pk} = ''`
-  }
-  const rest = cols.slice(1)
-  const sets = (rest.length > 0 ? rest : ['name']).map((c) => `${c} = ''`).join(', ')
-  return `UPDATE ${table} SET ${sets} WHERE ${pk} = ''`
-}
 
 /** btree.appを参考に、上部に横並びの1つのツールバー(ランダム追加・まとめて
  * 追加・エディター)としてまとめた(ユーザー指示)。エディターは複数行の
@@ -37,28 +17,21 @@ export function ControlsBar() {
   const seedMany = useDbInternal((s) => s.seedMany)
   const busy = useDbInternal((s) => s.busy)
   const error = useDbInternal((s) => s.error)
-  const currentTable = useDbInternal((s) => s.currentTable)
   const tables = useDbInternal((s) => s.tables)
+  const sqlMode = useDbInternal((s) => s.sqlMode)
+  const applySqlMode = useDbInternal((s) => s.applySqlMode)
   const [seedCount, setSeedCount] = useState(DEFAULT_SEED_COUNT)
-  const [mode, setMode] = useState<SqlMode>('INSERT')
   const { t } = useI18n()
-
-  const columns = tables.find((tbl) => tbl.name === currentTable)?.columns ?? []
-
-  const applyMode = (m: SqlMode) => {
-    setMode(m)
-    setSql(buildTemplate(m, currentTable, columns))
-  }
 
   // 空欄のプレースホルダーではなく、最初から実際に実行できるクエリを入れて
   // おく(「最初からクエリぶち込んで」というユーザー指示による)。tablesの
   // 読み込み完了(columnsが分かる)を待って一度だけ埋める。
   useEffect(() => {
-    if (sql === '' && columns.length > 0) {
-      setSql(buildTemplate(mode, currentTable, columns))
+    if (sql === '' && tables.length > 0) {
+      applySqlMode('INSERT')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns.length, currentTable])
+  }, [tables.length])
 
   return (
     <div className="mb-6 flex flex-wrap items-start gap-6 rounded-2xl border border-line bg-surface p-6 shadow-sm">
@@ -106,12 +79,12 @@ export function ControlsBar() {
         <h2 className="text-xs font-bold text-muted">{t('editorTitle')}</h2>
         <div className="flex items-center gap-2">
           <div className="flex shrink-0 gap-1 rounded-full bg-bg p-1 text-[11px] font-bold">
-            {MODES.map((m) => (
+            {SQL_MODES.map((m) => (
               <button
                 key={m}
                 type="button"
-                onClick={() => applyMode(m)}
-                className={`rounded-full px-2.5 py-1.5 ${mode === m ? 'bg-accent text-onaccent' : 'text-muted hover:text-ink'}`}
+                onClick={() => applySqlMode(m)}
+                className={`rounded-full px-2.5 py-1.5 ${sqlMode === m ? 'bg-accent text-onaccent' : 'text-muted hover:text-ink'}`}
               >
                 {m}
               </button>

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { execSql, listTables, resetSession } from './api'
+import { buildTemplate, type SqlMode } from './sqlTemplates'
 import type { ExecResponse, TableInfo, TreeSnapshot } from './types'
 
 const DEFAULT_TABLE = 'users'
@@ -51,6 +52,19 @@ type State = {
    * 即実行し、そのテーブルに切り替える(エディターに入力するだけで実行は
    * ユーザー任せ、という以前の挙動はユーザー指示によりやめた)。 */
   createTable: () => Promise<void>
+  /** エディターのINSERT/UPDATE/DELETE切り替えボタン用。現在の状態。 */
+  sqlMode: SqlMode
+  /** モードを切り替えつつ、選択中テーブルのカラムに沿ったテンプレートSQL
+   * (値は空クオート)をエディターに差し込む。 */
+  applySqlMode: (mode: SqlMode) => void
+  /** テーブルの行をクリックしたときに呼ぶ。「Add Random」「まとめて追加」で
+   * 作った行はB+Tree分岐用にPKがパディングされた長い文字列になっており、
+   * 表示上の短い値(例: "1")をWHERE句に手入力しても実際のPKと一致せず
+   * ヒットしない(UPDATE/DELETEが「動かない」という実害があった)。行クリックで
+   * その行の実際のPK値をWHERE句にそのまま埋め込むことで確実にヒットさせる。
+   * INSERTモード中にクリックした場合は、既存行を触る操作だと考えUPDATEに
+   * 切り替える。 */
+  fillTemplateForRow: (pkValue: string) => void
   reset: () => Promise<void>
 }
 
@@ -146,8 +160,22 @@ export const useDbInternal = create<State>((set, get) => ({
   lastResult: null,
   tree: null,
   newPKs: new Set(),
+  sqlMode: 'INSERT',
 
   setSql: (sql) => set({ sql }),
+
+  applySqlMode: (mode) => {
+    const { currentTable, tables } = get()
+    const columns = tables.find((t) => t.name === currentTable)?.columns ?? []
+    set({ sqlMode: mode, sql: buildTemplate(mode, currentTable, columns) })
+  },
+
+  fillTemplateForRow: (pkValue) => {
+    const { currentTable, tables, sqlMode } = get()
+    const columns = tables.find((t) => t.name === currentTable)?.columns ?? []
+    const mode = sqlMode === 'INSERT' ? 'UPDATE' : sqlMode
+    set({ sqlMode: mode, sql: buildTemplate(mode, currentTable, columns, pkValue) })
+  },
 
   init: async () => {
     set({ busy: true, error: null })
@@ -282,6 +310,7 @@ export const useDbInternal = create<State>((set, get) => ({
         sql: '',
         currentTable: DEFAULT_TABLE,
         tables: [],
+        sqlMode: 'INSERT',
       })
       await get().init()
     } catch (e) {

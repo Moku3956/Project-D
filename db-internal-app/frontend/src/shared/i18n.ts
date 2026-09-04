@@ -79,6 +79,10 @@ const strings = {
   zoomIn: { ja: '拡大', en: 'Zoom in' },
 
   dataTableEmpty: { ja: 'まだ行がありません', en: 'No rows yet' },
+  rowClickHint: {
+    ja: 'クリックすると、この行の実際のidでUPDATE/DELETE文を作成します',
+    en: 'Click to build an UPDATE/DELETE statement using this row’s real id',
+  },
 
   treeEmpty: { ja: '(空)', en: '(empty)' },
   treeOmit: { ja: '…{count}件…', en: '…{count} more…' },
