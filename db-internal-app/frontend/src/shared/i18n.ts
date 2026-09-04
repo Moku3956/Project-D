@@ -75,6 +75,9 @@ const strings = {
   loading: { ja: '読み込み中…', en: 'Loading…' },
   treeHeadingExpanded: { ja: 'B+Tree ページ構造(拡大表示)', en: 'B+Tree Page Structure (Expanded)' },
   close: { ja: '閉じる ✕', en: 'Close ✕' },
+  zoomFit: { ja: '全体表示', en: 'Fit' },
+  zoomOut: { ja: '縮小', en: 'Zoom out' },
+  zoomIn: { ja: '拡大', en: 'Zoom in' },
 
   dataTableEmpty: { ja: 'まだ行がありません', en: 'No rows yet' },
 
