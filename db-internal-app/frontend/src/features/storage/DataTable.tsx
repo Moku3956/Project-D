@@ -56,7 +56,7 @@ export function DataTable({ tree, columns, table }: { tree: TreeSnapshot; column
             rows.map((row, i) => (
               <tr
                 key={i}
-                onClick={() => fillTemplateForRow(String(row[0]))}
+                onClick={() => fillTemplateForRow(stripPadding(row[0]))}
                 title={t('rowClickHint')}
                 className="cursor-pointer border-b border-line last:border-b-0 hover:bg-bg"
               >

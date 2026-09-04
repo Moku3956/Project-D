@@ -11,11 +11,15 @@ const DEFAULT_TABLE = 'users'
 // (実測200件近く)は全く変わらず、Rootが極端に横広がりになってしまう
 // (実機フィードバックで発覚)。複合キーは葉・内部ノード両方に含まれるため、
 // 主キー(id)自体を長くパディングすることで両方の容量を一緒に下げる。
-// 文字列は辞書順ソートされる(storage/btree/cell.go compareValues)ため、
-// "id-2" < "id-10" のような直感に反する並びを避けるべく、数値部分を
-// ゼロ埋めしてから残りをパディングする。
+//
+// パディング自体は「バックエンドでidにパディングを追加したらいい」という
+// ユーザー指示により、db-internal-appのバックエンド(dbsession/padding.go)が
+// SQL実行前に自動で行う。フロントエンドは常に短い素のid(1〜MAX_RANDOM_ID)を
+// 送るだけでよい。ID_NUMERIC_DIGITSはバックエンド側のゼロ埋め桁数と合わせて
+// あり、既存行(SELECT等で読み戻した、既にパディング済みの値)からPKの数値
+// 部分を読み取る際に使う。
 const ID_NUMERIC_DIGITS = 3 // 999件まで辞書順=数値順が一致する(MAX_RANDOM_IDと合わせる)
-const ID_COLUMN_LENGTH = 600
+const ID_COLUMN_LENGTH = 600 // CREATE TABLEでのid列の宣言長。バックエンドがこの長さまでパディングする
 const NAME_COLUMN_LENGTH = 50 // nameはもうパディングしないので実際の値で足りる長さ
 
 const INIT_SQL = `CREATE TABLE ${DEFAULT_TABLE} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
@@ -58,13 +62,10 @@ type State = {
   /** モードを切り替えつつ、選択中テーブルのカラムに沿ったテンプレートSQL
    * (値は空クオート)をエディターに差し込む。 */
   applySqlMode: (mode: SqlMode) => void
-  /** テーブルの行をクリックしたときに呼ぶ。「Add Random」「まとめて追加」で
-   * 作った行はB+Tree分岐用にPKがパディングされた長い文字列になっており、
-   * 表示上の短い値(例: "1")をWHERE句に手入力しても実際のPKと一致せず
-   * ヒットしない(UPDATE/DELETEが「動かない」という実害があった)。行クリックで
-   * その行の実際のPK値をWHERE句にそのまま埋め込むことで確実にヒットさせる。
-   * INSERTモード中にクリックした場合は、既存行を触る操作だと考えUPDATEに
-   * 切り替える。 */
+  /** テーブルの行をクリックしたときに呼ぶ。その行の(パディングを取り除いた)
+   * 短いPK値をWHERE句に埋め込む。パディングの付け外しはバックエンドが担う
+   * ため、フロントエンドは常に短い素の値だけを扱えばよい。INSERTモード中に
+   * クリックした場合は、既存行を触る操作だと考えUPDATEに切り替える。 */
   fillTemplateForRow: (pkValue: string) => void
   reset: () => Promise<void>
 }
@@ -91,13 +92,6 @@ function diffNewPKs(prevTree: TreeSnapshot | null, nextTree: TreeSnapshot | null
     if (!prevPKs.has(pk)) diff.add(pk)
   }
   return diff
-}
-
-/** ゼロ埋めした数値+パディング文字、という形のPK文字列を作る。
- * 例: paddedSeedId(42) -> "000042xxxx...x"(合計600文字) */
-function paddedSeedId(n: number): string {
-  const numeric = String(n).padStart(ID_NUMERIC_DIGITS, '0')
-  return numeric.padEnd(ID_COLUMN_LENGTH, 'x')
 }
 
 // 「dummy-*」ではなく実在の名前らしい値を入れたい、というユーザー指示による。
@@ -275,8 +269,11 @@ export const useDbInternal = create<State>((set, get) => ({
         const results = await Promise.all(
           ids.slice(batchStart, batchEnd).map((id, k) => {
             const wantTree = batchStart + k === ids.length - 1
+            // idは短い素の値のまま送る。B+Tree分岐用のパディングはバックエンド
+            // (dbsession/padding.go)が自動で行う(「バックエンドでidにパディング
+            // を追加したらいい」というユーザー指示による)。
             return execSql(
-              `INSERT INTO ${currentTable} VALUES ('${paddedSeedId(id)}', '${randomName()}')`,
+              `INSERT INTO ${currentTable} VALUES ('${id}', '${randomName()}')`,
               wantTree ? currentTable : undefined,
             )
           }),

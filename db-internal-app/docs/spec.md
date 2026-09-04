@@ -112,7 +112,11 @@ CREATE TABLEしたテーブルにその後何度もINSERTし、B+Treeが分割�
 
 バックエンド側のAffectedRows修正を待たずに、`run()`内でSQLが`DELETE`から始まる場合だけ、実行前後の該当テーブルの行数(`collectPKs`のサイズ)をフロントエンド側で比較し、減っていなければ警告文(`deleteNoMatch`)を表示するようにした。Reactフックの外(store.ts)からi18n文字列を使うため、`shared/i18n.ts`に非フック版の`translate()`を追加した。
 
-**行クリックで埋まる本物のPK値が読みにくい問題に、読みやすいプレビュー行を追加して対応した。** 「これじゃないとデリートできなかった」として600文字のパディング込みPK値をそのまま貼られたユーザー反応を受けたもの。パディング自体は削除できない(B+Treeの分岐を起こすための本物の値で、これを短くすると分岐が起きなくなる)ため、エディター入力欄の値そのものは変えず、その下に「パディングをstripPaddingした読みやすい版」をプレビュー表示するだけの追加にした(`ControlsBar.tsx`の`friendlySqlPreview`。SQL文中のシングルクオート値を正規表現で走査し、パディングされているものだけ短く置換する。実行に使う本物の`sql`state自体には一切触れない)。`stripPadding`は元々`features/storage/displayValue.ts`にあったが、`shared/ControlsBar.tsx`からも使うようになったため`shared/displayValue.ts`に移設した。
+**PKパディングの読みにくさに、当初はフロントエンドで「読みやすいプレビュー行」を追加して対応したが、根本的に不十分だった。** 「これじゃないとデリートできなかった」として600文字のパディング込みPK値をそのまま貼られたユーザー反応を受け、一旦はエディター入力欄はそのまま(実行に使う本物の値)にして、その下にパディング除去済みの読みやすい版をプレビュー表示するだけの対応にした。しかしこれは症状を隠しただけで、「76みたいなシンプルなidでdeleteしたい」「受け取ったsqlを直接実行する実装になってるからそうなってしまうんでしょ？そうじゃなくて、まずはsqlを受け取って、バックエンドでidにパディングを追加したらいい」というユーザー指摘の通り、そもそも**フロントエンドがSQL文字列にパディング済みの値を埋め込んで送る設計自体が間違い**だった。プレビュー機能は不要になったため削除した。
+
+**PKパディングをバックエンド側(db-internal-app固有の便宜層)に移した。** 新設した`db-internal-app/internal/dbsession/padding.go`の`padPKLiterals`が、`Session.Exec`内で`parser.Parse`直後・`planner.Plan`前にASTを書き換える。対象テーブルのスキーマからPK列(`schema.PrimaryKeyIndex()`)を特定し、そのPK列に対応するリテラル値(INSERTの`Values`・UPDATEの`Assignments`・WHERE句の等値比較の葉)を、宣言長(`Column.Type.Length`)までパディングする。数字だけの値は`idNumericDigits`(3桁。フロントエンドの`MAX_RANDOM_ID`と合わせてある)までゼロ埋めしてから`x`で埋め、辞書順=数値順を保つ。MokuDB本体(`sql/parser`・`planner`・`executor`)には一切手を入れておらず、`ast.Statement`を直接書き換えてそのまま`Plan`に渡すだけなので、既存のASTベースの実行パイプラインをそのまま使い回せる。
+
+この結果、フロントエンドは常に短い素のPK値(例: `'76'`)だけを送ればよくなった。`store.ts`の`paddedSeedId()`は不要になり削除、`seedMany`は素のidをそのままSQLに埋め込むだけになった。`DataTable.tsx`の行クリックも、生の(パディング込みの)PK値ではなく`stripPadding`した短い値を`fillTemplateForRow`に渡すよう変更した(バックエンドが再度パディングしてくれるため)。
 
 **日本語/英語の切り替えに対応した(ユーザー確定済み)。** 「JapaneseとEnglishの切り替えができるようにしよう」というユーザー指示による。`shared/i18n.ts`にキー→{ja, en}の対訳辞書と、現在の表示言語を保持するZustandストア(`useLocaleStore`)を実装した。`{name}`形式のプレースホルダー置換にのみ対応する簡易実装で、外部i18nライブラリは導入していない(文字列数が少なく、複数形/日付フォーマット等の複雑なルールが不要なため)。
 
