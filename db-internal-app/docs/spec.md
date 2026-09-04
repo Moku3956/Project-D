@@ -112,6 +112,8 @@ CREATE TABLEしたテーブルにその後何度もINSERTし、B+Treeが分割�
 
 バックエンド側のAffectedRows修正を待たずに、`run()`内でSQLが`DELETE`から始まる場合だけ、実行前後の該当テーブルの行数(`collectPKs`のサイズ)をフロントエンド側で比較し、減っていなければ警告文(`deleteNoMatch`)を表示するようにした。Reactフックの外(store.ts)からi18n文字列を使うため、`shared/i18n.ts`に非フック版の`translate()`を追加した。
 
+**行クリックで埋まる本物のPK値が読みにくい問題に、読みやすいプレビュー行を追加して対応した。** 「これじゃないとデリートできなかった」として600文字のパディング込みPK値をそのまま貼られたユーザー反応を受けたもの。パディング自体は削除できない(B+Treeの分岐を起こすための本物の値で、これを短くすると分岐が起きなくなる)ため、エディター入力欄の値そのものは変えず、その下に「パディングをstripPaddingした読みやすい版」をプレビュー表示するだけの追加にした(`ControlsBar.tsx`の`friendlySqlPreview`。SQL文中のシングルクオート値を正規表現で走査し、パディングされているものだけ短く置換する。実行に使う本物の`sql`state自体には一切触れない)。`stripPadding`は元々`features/storage/displayValue.ts`にあったが、`shared/ControlsBar.tsx`からも使うようになったため`shared/displayValue.ts`に移設した。
+
 **日本語/英語の切り替えに対応した(ユーザー確定済み)。** 「JapaneseとEnglishの切り替えができるようにしよう」というユーザー指示による。`shared/i18n.ts`にキー→{ja, en}の対訳辞書と、現在の表示言語を保持するZustandストア(`useLocaleStore`)を実装した。`{name}`形式のプレースホルダー置換にのみ対応する簡易実装で、外部i18nライブラリは導入していない(文字列数が少なく、複数形/日付フォーマット等の複雑なルールが不要なため)。
 
 - 初期値は`localStorage`に保存済みの言語があればそれを使い、なければ`navigator.language`から自動判定する(日本語ブラウザなら`ja`、それ以外は`en`)。切り替え後の選択は`localStorage`(キー`db-internal-app:locale`)に保存し、次回訪問時も引き継ぐ。セッション(サーバー側の`db_internal_sid`)とは無関係の、純粋にブラウザ側だけの表示設定。

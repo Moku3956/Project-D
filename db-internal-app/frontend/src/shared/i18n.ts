@@ -83,6 +83,7 @@ const strings = {
     ja: 'クリックすると、この行の実際のidでUPDATE/DELETE文を作成します',
     en: 'Click to build an UPDATE/DELETE statement using this row’s real id',
   },
+  sqlPreviewLabel: { ja: '分かりやすく表示:', en: 'Readable version:' },
 
   treeEmpty: { ja: '(空)', en: '(empty)' },
   treeOmit: { ja: '…{count}件…', en: '…{count} more…' },

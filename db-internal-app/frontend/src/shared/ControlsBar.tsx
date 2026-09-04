@@ -2,8 +2,28 @@ import { useEffect, useState } from 'react'
 import { MAX_RANDOM_ID, useDbInternal } from './store'
 import { useI18n } from './i18n'
 import { SQL_MODES } from './sqlTemplates'
+import { stripPadding } from './displayValue'
 
 const DEFAULT_SEED_COUNT = 20
+
+/** SQL文中のシングルクオート値のうち、パディングされたもの(「Add Random」
+ * 「まとめて追加」で作った行のPK等)だけを短い素の値に置き換えたプレビュー
+ * 文字列を作る。実行に使う本物の値(パディング込み)には一切手を入れず、
+ * あくまで人間が読むための表示専用。1つも置換対象がなければnullを返す
+ * (元のSQLと同じものを2行表示しても意味がないため)。「'028xxxx...'(600文字)
+ * じゃないと削除できなかった」というユーザーからの反応を受けて追加した。 */
+function friendlySqlPreview(sql: string): string | null {
+  let changed = false
+  const preview = sql.replace(/'([^']*)'/g, (whole: string, inner: string) => {
+    const stripped = stripPadding(inner)
+    if (stripped !== inner) {
+      changed = true
+      return `'${stripped}'`
+    }
+    return whole
+  })
+  return changed ? preview : null
+}
 
 /** btree.appを参考に、上部に横並びの1つのツールバー(ランダム追加・まとめて
  * 追加・エディター)としてまとめた(ユーザー指示)。エディターは複数行の
@@ -22,6 +42,7 @@ export function ControlsBar() {
   const applySqlMode = useDbInternal((s) => s.applySqlMode)
   const [seedCount, setSeedCount] = useState(DEFAULT_SEED_COUNT)
   const { t } = useI18n()
+  const sqlPreview = friendlySqlPreview(sql)
 
   // 空欄のプレースホルダーではなく、最初から実際に実行できるクエリを入れて
   // おく(「最初からクエリぶち込んで」というユーザー指示による)。tablesの
@@ -106,6 +127,12 @@ export function ControlsBar() {
             {busy ? t('running') : t('run')}
           </button>
         </div>
+        {sqlPreview && (
+          <p className="truncate text-[11px] text-muted">
+            <span className="font-bold">{t('sqlPreviewLabel')}</span>{' '}
+            <span className="sql-input">{sqlPreview}</span>
+          </p>
+        )}
       </div>
 
       {error && (

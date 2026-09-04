@@ -1,7 +1,7 @@
 import type { TreeSnapshot } from '../../shared/types'
 import { useI18n } from '../../shared/i18n'
 import { useDbInternal } from '../../shared/store'
-import { stripPadding } from './displayValue'
+import { stripPadding } from '../../shared/displayValue'
 
 /** TreeSnapshotの全葉ページからKVを集めて、普通のテーブル(行・列)として
  * 表示する。B+Treeのページ構造(内部の保存のされ方)と対比して、「見た目は
