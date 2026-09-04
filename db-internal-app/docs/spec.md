@@ -100,6 +100,8 @@ CREATE TABLEしたテーブルにその後何度もINSERTし、B+Treeが分割�
 
 「dummy-1」のような無機質な連番名は、「dummy-*とかじゃない、リアルなランダム値を入れたいね」というユーザー指示によりやめ、実在の名前らしい単語のプール(`REALISTIC_NAMES`、Alice/Bob/Charlie...)からランダムに選ぶ方式にした(`randomName()`)。ランダム追加・まとめて追加の両方がこの関数を使うため、挙動は統一されている。
 
+**idも連番ではなくランダムにした(ユーザー確定済み)。** 「Add Random, Bulk InsertのIDも連番じゃなくて、ランダムにしよう」という指示による。従来は既存行の最大id+1から連番で採番していたが(`maxNumericId`)、`existingNumericIds`(既存の全idを集める)+`randomUniqueIds`(1〜999999の範囲で、既存id・同一バッチ内のidと重複しないようランダムに選ぶ、reject-and-retry方式)に置き換えた。まとめて追加のデフォルト件数も60→20に変更した。
+
 **テーブルの行をクリックすると、その行の実際のPK値でUPDATE/DELETE文を組み立てる(バグ修正)。** 「ランダム追加」「まとめて追加」で作った行は、B+Treeの分岐を起こすためにPK(`id`)がパディングされた長い文字列になっている(表示は`stripPadding`で短く見せているだけ)。この状態で「update文がしっかり動かない」というユーザー報告があり、実機で調査したところ、エディターのUPDATE/DELETEテンプレートに表示上の短い値(例: `'1'`)を手入力しても、実際のPKと一致せず`affectedRows: 0`のまま何も起きていなかったことを確認した(curlで再現: 手打ちの短いPKで作った行はUPDATEが正しく効くが、パディングされたPKの行には効かない)。
 
 `SqlMode`・`buildTemplate`を`shared/sqlTemplates.ts`に切り出し、テーブルの行クリック(`DataTable.tsx`)でその行の生のPK値(パディング込み)をWHERE句にそのまま埋め込んだテンプレートをエディターに差し込むようにした(`store.ts`の`fillTemplateForRow`)。クリック時にINSERTモードだった場合は「既存行を触る操作」とみなしUPDATEに自動で切り替える。`sqlMode`(モード切り替えボタンの状態)は`ControlsBar`のローカルstateから`store.ts`に引き上げ、`DataTable`からも参照できるようにした。

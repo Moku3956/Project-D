@@ -3,7 +3,7 @@ import { useDbInternal } from './store'
 import { useI18n } from './i18n'
 import { SQL_MODES } from './sqlTemplates'
 
-const DEFAULT_SEED_COUNT = 60
+const DEFAULT_SEED_COUNT = 20
 
 /** btree.appを参考に、上部に横並びの1つのツールバー(ランダム追加・まとめて
  * 追加・エディター)としてまとめた(ユーザー指示)。エディターは複数行の

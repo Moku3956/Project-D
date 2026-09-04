@@ -40,10 +40,10 @@ type State = {
    * (またはリセット後)に自動でCREATE TABLEしておく。 */
   init: () => Promise<void>
   run: () => Promise<void>
-  /** id昇順でn件のランダムな行を連続INSERTする。1ページに収まる件数(実測数件)を
-   * 手でクリックせずに超えられるようにするための、フロントエンド側の便宜機能
-   * (SQL言語自体に複数行INSERTを追加したわけではない)。「Add Random」(n=1)と
-   * 「Bulk Insert」(n=任意件数)の両方がこれを呼ぶ。 */
+  /** ランダムなid・名前でn件の行を連続INSERTする。1ページに収まる件数
+   * (実測数件)を手でクリックせずに超えられるようにするための、フロントエンド
+   * 側の便宜機能(SQL言語自体に複数行INSERTを追加したわけではない)。
+   * 「Add Random」(n=1)と「Bulk Insert」(n=任意件数)の両方がこれを呼ぶ。 */
   seedMany: (n: number) => Promise<void>
   /** タブをクリックしたときに呼ぶ。選択テーブルを切り替えて、そのテーブルの
    * 現在のデータ・B+Treeを取り直す。 */
@@ -112,22 +112,41 @@ function randomName(): string {
   return REALISTIC_NAMES[Math.floor(Math.random() * REALISTIC_NAMES.length)]
 }
 
-/** 既存の行のPK(先頭6桁の数値部分)から次に使う番号を決める。手入力された
- * 短いPK("1"等)が混ざっていても、先頭を数値として読める範囲でmaxを取る。
- * (他テーブルの行は無視する。tableに一致する行だけが対象。) */
-function maxNumericId(tree: TreeSnapshot | null, table: string): number {
-  let max = 0
-  if (!tree) return max
+/** 既存の行のPK(先頭6桁の数値部分)を全て集める。手入力された短いPK
+ * ("1"等)が混ざっていても、先頭を数値として読める範囲で拾う。(他テーブルの
+ * 行は無視する。tableに一致する行だけが対象。)ランダムなidを採番する際の
+ * 重複チェックに使う。 */
+function existingNumericIds(tree: TreeSnapshot | null, table: string): Set<number> {
+  const ids = new Set<number>()
+  if (!tree) return ids
   for (const page of Object.values(tree.pages)) {
     if (!page.isLeaf || !page.rows) continue
     page.rows.forEach((row, i) => {
       if ((page.rowTables?.[i] ?? table) !== table) return
       const numeric = String(row[0]).slice(0, ID_NUMERIC_DIGITS)
       const id = Number(numeric)
-      if (!Number.isNaN(id) && id > max) max = id
+      if (!Number.isNaN(id)) ids.add(id)
     })
   }
-  return max
+  return ids
+}
+
+// ID_NUMERIC_DIGITSが6桁なのでこの範囲に収める。
+const MAX_RANDOM_ID = 999999
+
+/** 「連番じゃなくてランダムにしよう」というユーザー指示による。既存の行(他
+ * テーブルの行を除く)・同一バッチ内のidと重複しない範囲で、n件のランダムな
+ * 数値idを選ぶ。 */
+function randomUniqueIds(n: number, exclude: Set<number>): number[] {
+  const used = new Set(exclude)
+  const picked: number[] = []
+  while (picked.length < n) {
+    const candidate = 1 + Math.floor(Math.random() * MAX_RANDOM_ID)
+    if (used.has(candidate)) continue
+    used.add(candidate)
+    picked.push(candidate)
+  }
+  return picked
 }
 
 /** 既存テーブル名から「t1, t2, ...」の次の連番を決める。t\d+という名前の
@@ -221,17 +240,16 @@ export const useDbInternal = create<State>((set, get) => ({
     set({ busy: true, error: null })
     const BATCH_SIZE = 25 // 直列だと数千件で数分かかるため、まとめて並行実行する
     try {
-      const startId = maxNumericId(prevTree, currentTable)
+      const ids = randomUniqueIds(n, existingNumericIds(prevTree, currentTable))
       let firstError: string | null = null
       let finalResult: ExecResponse | null = null
       // 木のダンプはサーバー側でページ全体を辿るコストがあるため、毎回は要求せず
       // 一番最後のINSERTでだけツリーを取得する。
-      for (let batchStart = 1; batchStart <= n && !firstError; batchStart += BATCH_SIZE) {
-        const batchEnd = Math.min(batchStart + BATCH_SIZE - 1, n)
+      for (let batchStart = 0; batchStart < n && !firstError; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, n)
         const results = await Promise.all(
-          Array.from({ length: batchEnd - batchStart + 1 }, (_, k) => {
-            const id = startId + batchStart + k
-            const wantTree = batchStart + k === n
+          ids.slice(batchStart, batchEnd).map((id, k) => {
+            const wantTree = batchStart + k === n - 1
             return execSql(
               `INSERT INTO ${currentTable} VALUES ('${paddedSeedId(id)}', '${randomName()}')`,
               wantTree ? currentTable : undefined,

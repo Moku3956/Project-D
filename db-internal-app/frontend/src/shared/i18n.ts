@@ -57,8 +57,8 @@ const strings = {
   },
   bulkInsert: { ja: 'まとめて追加', en: 'Bulk Insert' },
   bulkInsertTitle: {
-    ja: 'idを自動採番してランダムな行をまとめてINSERTする(1ページに収まらない件数を手でクリックせず試すための機能。エディターのSQLは実行しない)',
-    en: 'Auto-generates ids and bulk-inserts random rows (a shortcut to exceed one page without clicking by hand; does not run the SQL in the editor)',
+    ja: 'idを自動採番してランダムな行をまとめてINSERTする',
+    en: 'Auto-generates ids and bulk-inserts random rows',
   },
 
   storageTableHeading: { ja: 'テーブル({table})', en: 'Table ({table})' },
