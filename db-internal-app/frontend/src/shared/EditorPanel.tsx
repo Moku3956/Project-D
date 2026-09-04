@@ -57,7 +57,7 @@ export function EditorPanel() {
           </button>
         </div>
         <p className="pt-2 text-[10px] leading-relaxed text-muted">
-          一つのPageに少量のデータしか入らないようになってます。
+          INSERT文が指定の回数実行されます!
         </p>
       </div>
 

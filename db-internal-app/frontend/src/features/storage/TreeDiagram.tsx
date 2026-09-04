@@ -4,6 +4,14 @@ import type { TreeSnapshot } from '../../shared/types'
 const PADDING = 16
 
 function LeafBox({ node, tableName }: { node: Layout['nodes'][number]; tableName: string }) {
+  // ページはこのテーブル専用ではなく、物理B+Tree全体を全テーブルで共有している
+  // (docs/spec.md「Storage」参照)。DumpTreeは選択中テーブルの行だけをRowsに
+  // 残すため、cellsが空のページは「このテーブルのデータがない」だけで、実際は
+  // 他テーブルの行で埋まっている可能性が高い。そのためラベルは実際に選択中
+  // テーブルの行を含むページにだけ付け、空のページには付けない
+  // (「リーフノードのすべてに新しいテーブルの名前が書かれる」というユーザー
+  // 指摘の修正)。
+  const hasOwnRows = (node.cells ?? []).length > 0
   return (
     <div
       className="absolute flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm"
@@ -17,9 +25,9 @@ function LeafBox({ node, tableName }: { node: Layout['nodes'][number]; tableName
       <div
         className="flex shrink-0 items-center justify-center truncate border-b border-line bg-bg px-1 text-[9px] font-bold text-muted"
         style={{ height: LEAF_LABEL_H }}
-        title={tableName}
+        title={hasOwnRows ? tableName : '他テーブルの行を含む可能性があるページ'}
       >
-        {tableName}
+        {hasOwnRows ? tableName : '?'}
       </div>
       <div className="flex flex-1 overflow-hidden">
         {(node.cells ?? []).map((cell, i) =>
