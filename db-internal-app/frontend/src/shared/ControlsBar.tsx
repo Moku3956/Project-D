@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useDbInternal } from './store'
 import { useI18n } from './i18n'
 
@@ -50,6 +50,16 @@ export function ControlsBar() {
     setSql(buildTemplate(m, currentTable, columns))
   }
 
+  // 空欄のプレースホルダーではなく、最初から実際に実行できるクエリを入れて
+  // おく(「最初からクエリぶち込んで」というユーザー指示による)。tablesの
+  // 読み込み完了(columnsが分かる)を待って一度だけ埋める。
+  useEffect(() => {
+    if (sql === '' && columns.length > 0) {
+      setSql(buildTemplate(mode, currentTable, columns))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns.length, currentTable])
+
   return (
     <div className="mb-6 flex flex-wrap items-start gap-6 rounded-2xl border border-line bg-surface p-6 shadow-sm">
       <div className="flex flex-col gap-2">
@@ -93,7 +103,10 @@ export function ControlsBar() {
       <div className="h-14 w-px shrink-0 bg-line" />
 
       <div className="flex min-w-[380px] flex-1 flex-col gap-2">
-        <h2 className="text-xs font-bold text-muted">{t('editorTitle')}</h2>
+        <div>
+          <h2 className="text-xs font-bold text-muted">{t('editorTitle')}</h2>
+          <p className="pt-0.5 text-[11px] text-muted">{t('editorPlaceholder')}</p>
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex shrink-0 gap-1 rounded-full bg-bg p-1 text-[11px] font-bold">
             {MODES.map((m) => (
@@ -112,7 +125,6 @@ export function ControlsBar() {
             value={sql}
             onChange={(e) => setSql(e.target.value)}
             spellCheck={false}
-            placeholder={t('editorPlaceholder')}
             className="sql-input min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-xs text-ink outline-none focus:border-accent"
           />
           <button
