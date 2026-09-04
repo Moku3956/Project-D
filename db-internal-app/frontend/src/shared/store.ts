@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { execSql, listTables, resetSession } from './api'
 import { buildTemplate, type SqlMode } from './sqlTemplates'
+import { translate } from './i18n'
 import type { ExecResponse, TableInfo, TreeSnapshot } from './types'
 
 const DEFAULT_TABLE = 'users'
@@ -228,11 +229,26 @@ export const useDbInternal = create<State>((set, get) => ({
       // CREATE/DROP TABLE等でテーブル一覧が変わっている可能性があるため、
       // 実行のたびにタブ一覧も取り直す。
       const tables = await listTables()
+      const nextTree = result.tree ?? prevTree
+      // バックエンドのResult.AffectedRowsが常に0を返す既知の問題があるため、
+      // 実行結果からは成功/失敗も何件処理したかも分からない。DELETE文について
+      // だけは、行数が実際に減ったかをフロントエンド側で確認し、減っていなければ
+      // 警告を出す(「delete文を実行したけど、削除されない」というユーザー報告
+      // への対応。空のWHERE句のまま実行して0件ヒットしていたことが原因だった)。
+      let warning: string | null = null
+      if (/^\s*DELETE\b/i.test(sql)) {
+        const prevCount = collectPKs(prevTree, currentTable).size
+        const nextCount = collectPKs(nextTree, currentTable).size
+        if (nextCount >= prevCount) {
+          warning = translate('deleteNoMatch')
+        }
+      }
       set({
         busy: false,
+        error: warning,
         lastResult: result,
-        tree: result.tree ?? prevTree,
-        newPKs: diffNewPKs(prevTree, result.tree ?? null, currentTable),
+        tree: nextTree,
+        newPKs: diffNewPKs(prevTree, nextTree, currentTable),
         tables,
       })
     } catch (e) {

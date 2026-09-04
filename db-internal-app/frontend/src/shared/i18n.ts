@@ -93,6 +93,11 @@ const strings = {
     ja: 't1, t2, ...という名前でテーブルを作り、すぐに切り替えます。',
     en: 'Creates a table named t1, t2, ... and switches to it right away.',
   },
+
+  deleteNoMatch: {
+    ja: '一致する行がなく、削除されませんでした。行をクリックしてから実行するか、WHERE句の値を確認してください。',
+    en: 'No matching row was found, so nothing was deleted. Click a row first, or check the WHERE clause value.',
+  },
 } satisfies Record<string, Record<Locale, string>>
 
 export type StringKey = keyof typeof strings
@@ -103,4 +108,9 @@ export function useI18n() {
   const setLocale = useLocaleStore((s) => s.setLocale)
   const t = (key: StringKey, params?: Params) => interpolate(strings[key][locale], params)
   return { t, locale, setLocale }
+}
+
+/** Reactフックの外(store.ts等)からi18n文字列を取り出す非フック版。 */
+export function translate(key: StringKey, params?: Params): string {
+  return interpolate(strings[key][useLocaleStore.getState().locale], params)
 }
