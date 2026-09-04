@@ -1,5 +1,6 @@
 import { CELL_W, LEAF_LABEL_H, layoutTree, type Layout } from './layout'
 import type { TreeSnapshot } from '../../shared/types'
+import { useI18n } from '../../shared/i18n'
 
 const PADDING = 16
 
@@ -11,6 +12,7 @@ const PADDING = 16
  * する。 */
 function LeafBox({ node, currentTable }: { node: Layout['nodes'][number]; currentTable: string }) {
   const groups = node.groups ?? []
+  const { t } = useI18n()
   return (
     <div
       className="absolute flex overflow-hidden rounded-xl border border-line bg-surface shadow-sm"
@@ -24,7 +26,7 @@ function LeafBox({ node, currentTable }: { node: Layout['nodes'][number]; curren
       {groups.length === 0 ? (
         <div className="flex w-full flex-col">
           <div className="shrink-0" style={{ height: LEAF_LABEL_H }} />
-          <div className="flex flex-1 items-center justify-center text-[11px] text-muted">(空)</div>
+          <div className="flex flex-1 items-center justify-center text-[11px] text-muted">{t('treeEmpty')}</div>
         </div>
       ) : (
         groups.map((g, gi) => {
@@ -39,7 +41,7 @@ function LeafBox({ node, currentTable }: { node: Layout['nodes'][number]; curren
                   isCurrent ? 'border-line bg-bg text-muted' : 'border-line bg-bg/60 text-muted/70'
                 }`}
                 style={{ height: LEAF_LABEL_H }}
-                title={isCurrent ? g.table : `他テーブル(${g.table})の行`}
+                title={isCurrent ? g.table : t('treeOtherTableTitle', { table: g.table })}
               >
                 {g.table}
               </div>
@@ -53,7 +55,7 @@ function LeafBox({ node, currentTable }: { node: Layout['nodes'][number]; curren
                       }`}
                       style={{ width: 56 }}
                     >
-                      …{cell.count}件…
+                      {t('treeOmit', { count: cell.count })}
                     </div>
                   ) : (
                     <div

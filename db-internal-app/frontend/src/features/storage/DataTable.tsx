@@ -1,4 +1,5 @@
 import type { TreeSnapshot } from '../../shared/types'
+import { useI18n } from '../../shared/i18n'
 import { stripPadding } from './displayValue'
 
 /** TreeSnapshotの全葉ページからKVを集めて、普通のテーブル(行・列)として
@@ -28,6 +29,7 @@ function collectRows(tree: TreeSnapshot, table: string): unknown[][] {
 
 export function DataTable({ tree, columns, table }: { tree: TreeSnapshot; columns: string[]; table: string }) {
   const rows = collectRows(tree, table)
+  const { t } = useI18n()
 
   return (
     <div className="overflow-x-auto rounded-xl border border-line">
@@ -45,7 +47,7 @@ export function DataTable({ tree, columns, table }: { tree: TreeSnapshot; column
           {rows.length === 0 ? (
             <tr>
               <td colSpan={columns.length} className="px-4 py-3 text-xs text-muted">
-                まだ行がありません
+                {t('dataTableEmpty')}
               </td>
             </tr>
           ) : (

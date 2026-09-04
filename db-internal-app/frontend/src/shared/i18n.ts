@@ -1,0 +1,100 @@
+import { create } from 'zustand'
+
+export type Locale = 'ja' | 'en'
+
+const STORAGE_KEY = 'db-internal-app:locale'
+
+function detectDefaultLocale(): Locale {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved === 'ja' || saved === 'en') return saved
+  } catch {
+    // localStorageが使えない環境(プライベートモード等)では既定値にフォールバック
+  }
+  return navigator.language.startsWith('ja') ? 'ja' : 'en'
+}
+
+type LocaleState = {
+  locale: Locale
+  setLocale: (locale: Locale) => void
+}
+
+/** 現在の表示言語。ページ単位の好みなのでlocalStorageに保存する(サーバー状態
+ * ではない)。 */
+export const useLocaleStore = create<LocaleState>((set) => ({
+  locale: detectDefaultLocale(),
+  setLocale: (locale) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, locale)
+    } catch {
+      // 保存に失敗しても表示切り替え自体は継続する
+    }
+    set({ locale })
+  },
+}))
+
+type Params = Record<string, string | number>
+
+/** {name}形式のプレースホルダーをparamsで置換する。 */
+function interpolate(template: string, params?: Params): string {
+  if (!params) return template
+  return template.replace(/\{(\w+)\}/g, (match, key: string) =>
+    key in params ? String(params[key]) : match,
+  )
+}
+
+const strings = {
+  appSubtitle: { ja: '実際のDBの中身', en: "What's really inside the DB" },
+  reset: { ja: 'リセット', en: 'Reset' },
+
+  editorTitle: { ja: 'エディター', en: 'Editor' },
+  editorPlaceholder: {
+    ja: 'INSERT, DELETE, UPDATEを実行できます！',
+    en: 'You can run INSERT, DELETE, UPDATE!',
+  },
+  run: { ja: '実行 ▸', en: 'Run ▸' },
+  running: { ja: '実行中…', en: 'Running…' },
+  seedTitle: { ja: '⚡ テスト用: まとめてダミー行を投入', en: '⚡ For testing: bulk-insert dummy rows' },
+  seedButton: { ja: '件まとめてINSERT ⚡', en: 'Bulk INSERT ⚡' },
+  seedButtonTitle: {
+    ja: 'idを自動採番してダミー行をまとめてINSERTする(1ページに収まらない件数を手でクリックせず試すための機能。エディターのSQLは実行しない)',
+    en: 'Auto-generates ids and bulk-inserts dummy rows (a shortcut to exceed one page without clicking by hand; does not run the SQL in the editor)',
+  },
+  seedHint: { ja: 'INSERT文が指定の回数実行されます!', en: 'The INSERT statement runs the given number of times!' },
+
+  storageTableHeading: { ja: 'テーブル({table})', en: 'Table ({table})' },
+  storageTableDesc: { ja: '見た目はただのテーブルですが…', en: "It looks like an ordinary table, but…" },
+  storageTreeHeading: { ja: 'B+Tree ページ構造', en: 'B+Tree Page Structure' },
+  storageTreeDesc: {
+    ja: '実際はこうやって保存されています。本来は、すごい平べったいです！',
+    en: "This is how it's actually stored. In reality it's much flatter!",
+  },
+  expand: { ja: '⤢ 拡大表示', en: '⤢ Expand' },
+  tabTable: { ja: 'テーブル', en: 'Table' },
+  tabTree: { ja: 'B+Tree構造', en: 'B+Tree' },
+  loading: { ja: '読み込み中…', en: 'Loading…' },
+  treeHeadingExpanded: { ja: 'B+Tree ページ構造(拡大表示)', en: 'B+Tree Page Structure (Expanded)' },
+  close: { ja: '閉じる ✕', en: 'Close ✕' },
+
+  dataTableEmpty: { ja: 'まだ行がありません', en: 'No rows yet' },
+
+  treeEmpty: { ja: '(空)', en: '(empty)' },
+  treeOmit: { ja: '…{count}件…', en: '…{count} more…' },
+  treeOtherTableTitle: { ja: '他テーブル({table})の行', en: 'Row from another table ({table})' },
+
+  newTable: { ja: '+ 新しいテーブル', en: '+ New table' },
+  newTableTitle: {
+    ja: 't1, t2, ...という名前でテーブルを作り、すぐに切り替えます。',
+    en: 'Creates a table named t1, t2, ... and switches to it right away.',
+  },
+} satisfies Record<string, Record<Locale, string>>
+
+export type StringKey = keyof typeof strings
+
+/** 現在のlocaleに沿ってi18n文字列を取り出すフック。 */
+export function useI18n() {
+  const locale = useLocaleStore((s) => s.locale)
+  const setLocale = useLocaleStore((s) => s.setLocale)
+  const t = (key: StringKey, params?: Params) => interpolate(strings[key][locale], params)
+  return { t, locale, setLocale }
+}
