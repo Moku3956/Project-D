@@ -53,19 +53,23 @@ type State = {
   reset: () => Promise<void>
 }
 
-function collectPKs(tree: TreeSnapshot | null): Set<unknown> {
+// 1つの物理B+Treeを全テーブルで共有しているため、tree.pages[].rowsには他
+// テーブルの行も混ざる。tableに一致する行だけを対象にする(rowTablesで判定)。
+function collectPKs(tree: TreeSnapshot | null, table: string): Set<unknown> {
   const pks = new Set<unknown>()
   if (!tree) return pks
   for (const page of Object.values(tree.pages)) {
     if (!page.isLeaf || !page.rows) continue
-    for (const row of page.rows) pks.add(row[0])
+    page.rows.forEach((row, i) => {
+      if ((page.rowTables?.[i] ?? table) === table) pks.add(row[0])
+    })
   }
   return pks
 }
 
-function diffNewPKs(prevTree: TreeSnapshot | null, nextTree: TreeSnapshot | null): Set<unknown> {
-  const prevPKs = collectPKs(prevTree)
-  const nextPKs = collectPKs(nextTree)
+function diffNewPKs(prevTree: TreeSnapshot | null, nextTree: TreeSnapshot | null, table: string): Set<unknown> {
+  const prevPKs = collectPKs(prevTree, table)
+  const nextPKs = collectPKs(nextTree, table)
   const diff = new Set<unknown>()
   for (const pk of nextPKs) {
     if (!prevPKs.has(pk)) diff.add(pk)
@@ -85,17 +89,19 @@ function seedName(n: number): string {
 }
 
 /** 既存の行のPK(先頭6桁の数値部分)から次に使う番号を決める。手入力された
- * 短いPK("1"等)が混ざっていても、先頭を数値として読める範囲でmaxを取る。 */
-function maxNumericId(tree: TreeSnapshot | null): number {
+ * 短いPK("1"等)が混ざっていても、先頭を数値として読める範囲でmaxを取る。
+ * (他テーブルの行は無視する。tableに一致する行だけが対象。) */
+function maxNumericId(tree: TreeSnapshot | null, table: string): number {
   let max = 0
   if (!tree) return max
   for (const page of Object.values(tree.pages)) {
     if (!page.isLeaf || !page.rows) continue
-    for (const row of page.rows) {
+    page.rows.forEach((row, i) => {
+      if ((page.rowTables?.[i] ?? table) !== table) return
       const numeric = String(row[0]).slice(0, ID_NUMERIC_DIGITS)
       const id = Number(numeric)
       if (!Number.isNaN(id) && id > max) max = id
-    }
+    })
   }
   return max
 }
@@ -164,7 +170,7 @@ export const useDbInternal = create<State>((set, get) => ({
         busy: false,
         lastResult: result,
         tree: result.tree ?? prevTree,
-        newPKs: diffNewPKs(prevTree, result.tree ?? null),
+        newPKs: diffNewPKs(prevTree, result.tree ?? null, currentTable),
         tables,
       })
     } catch (e) {
@@ -177,7 +183,7 @@ export const useDbInternal = create<State>((set, get) => ({
     set({ busy: true, error: null })
     const BATCH_SIZE = 25 // 直列だと数千件で数分かかるため、まとめて並行実行する
     try {
-      const startId = maxNumericId(prevTree)
+      const startId = maxNumericId(prevTree, currentTable)
       let firstError: string | null = null
       let finalResult: ExecResponse | null = null
       // 木のダンプはサーバー側でページ全体を辿るコストがあるため、毎回は要求せず
@@ -206,7 +212,7 @@ export const useDbInternal = create<State>((set, get) => ({
         error: firstError,
         lastResult: finalResult,
         tree: finalTree,
-        newPKs: diffNewPKs(prevTree, finalTree),
+        newPKs: diffNewPKs(prevTree, finalTree, currentTable),
       })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })

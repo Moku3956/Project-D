@@ -11,7 +11,7 @@ func TestDumpTreeEmptyRoot(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
 
-	snap, err := bt.DumpTree(testSchema())
+	snap, err := bt.DumpTree(map[uint32]*types.Schema{testTableID: testSchema()})
 	if err != nil {
 		t.Fatalf("DumpTree error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestDumpTreeReflectsUncommittedInsert(t *testing.T) {
 		t.Fatalf("Insert error: %v", err)
 	}
 
-	snap, err := bt.DumpTree(schema)
+	snap, err := bt.DumpTree(map[uint32]*types.Schema{testTableID: schema})
 	if err != nil {
 		t.Fatalf("DumpTree error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestDumpTreeAfterSplitBecomesInternal(t *testing.T) {
 		}
 	}
 
-	snap, err := bt.DumpTree(schema)
+	snap, err := bt.DumpTree(map[uint32]*types.Schema{testTableID: schema})
 	if err != nil {
 		t.Fatalf("DumpTree error: %v", err)
 	}

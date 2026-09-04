@@ -170,6 +170,7 @@ type pageSnapshotJSON struct {
 	ChildPageIDs   []uint32 `json:"childPageIds,omitempty"`
 	RightmostChild uint32   `json:"rightmostChild,omitempty"`
 	Rows           [][]any  `json:"rows,omitempty"`
+	RowTables      []string `json:"rowTables,omitempty"`
 	NextLeafID     uint32   `json:"nextLeafId,omitempty"`
 }
 
@@ -183,6 +184,7 @@ func marshalTreeSnapshot(snap *btree.TreeSnapshot) *treeSnapshotJSON {
 			ChildPageIDs:   ps.ChildPageIDs,
 			RightmostChild: ps.RightmostChild,
 			Rows:           marshalRows(ps.Rows),
+			RowTables:      ps.RowTables,
 			NextLeafID:     ps.NextLeafID,
 		}
 	}

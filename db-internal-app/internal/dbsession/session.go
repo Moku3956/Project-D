@@ -27,6 +27,7 @@ import (
 	"github.com/Moku3956/Project-D/storage/page"
 	"github.com/Moku3956/Project-D/storage/wal"
 	"github.com/Moku3956/Project-D/txn"
+	"github.com/Moku3956/Project-D/types"
 )
 
 // defaultBufferPoolSize はclient.Openと同じデフォルト値。
@@ -145,13 +146,24 @@ func (s *Session) Tables() ([]TableInfo, error) {
 	return infos, nil
 }
 
-// DumpTree はtableのB+Treeを現在の状態でスナップショットする
-// (storage/btree.BTree.DumpTree参照)。tableがOpenTableされていない場合は
-// エラーを返す。
+// DumpTree はB+Tree全体を現在の状態でスナップショットする(storage/btree.BTree.
+// DumpTree参照)。tableは「その名前のテーブルが存在するか」の検証にのみ使う。
+// 1つの物理木を全テーブルで共有しているため、返る内容はtableによらず常に同じ
+// (全テーブルの行を含み、各行がどのテーブルのものかはPageSnapshot.RowTablesで
+// 分かる)。tableがOpenTableされていない場合はエラーを返す。
 func (s *Session) DumpTree(table string) (*btree.TreeSnapshot, error) {
-	schema, err := s.repo.Schema(table)
-	if err != nil {
+	if _, err := s.repo.Schema(table); err != nil {
 		return nil, fmt.Errorf("dump tree: %w", err)
 	}
-	return s.repo.BTree().DumpTree(schema)
+
+	names := s.cat.TableNames()
+	schemas := make(map[uint32]*types.Schema, len(names))
+	for _, name := range names {
+		schema, err := s.cat.GetSchema(name)
+		if err != nil {
+			return nil, fmt.Errorf("dump tree: %w", err)
+		}
+		schemas[schema.TableID] = schema
+	}
+	return s.repo.BTree().DumpTree(schemas)
 }

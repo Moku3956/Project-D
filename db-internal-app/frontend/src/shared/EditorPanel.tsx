@@ -21,7 +21,7 @@ export function EditorPanel() {
         onChange={(e) => setSql(e.target.value)}
         spellCheck={false}
         placeholder={
-          '自由なINSERT文を記述可能です。\n素早く、B+Tree構造が見たい方は下の \n「件まとめてINSERT」ボタンを押してください！'
+          'INSERT, DELETE, UPDATEを実行できます！'
         }
         className="sql-input h-56 w-full resize-none rounded-xl border border-line bg-bg p-4 text-sm text-ink outline-none focus:border-accent"
       />

@@ -4,12 +4,16 @@ import { stripPadding } from './displayValue'
 /** TreeSnapshotの全葉ページからKVを集めて、普通のテーブル(行・列)として
  * 表示する。B+Treeのページ構造(内部の保存のされ方)と対比して、「見た目は
  * ただのテーブルだが、実際はこう保存されている」というのを伝えるための表示。
- * ページ構造とは違い、省略(先頭2件+省略+末尾2件)はせず全件そのまま出す。 */
-function collectRows(tree: TreeSnapshot): unknown[][] {
+ * ページ構造とは違い、省略(先頭2件+省略+末尾2件)はせず全件そのまま出す。
+ * 1つの物理B+Treeを全テーブルで共有しているため、page.rowsには他テーブルの
+ * 行も混ざる。tableに一致する行だけを対象にする(rowTablesで判定)。 */
+function collectRows(tree: TreeSnapshot, table: string): unknown[][] {
   const rows: unknown[][] = []
   for (const page of Object.values(tree.pages)) {
     if (!page.isLeaf || !page.rows) continue
-    rows.push(...page.rows)
+    page.rows.forEach((row, i) => {
+      if ((page.rowTables?.[i] ?? table) === table) rows.push(row)
+    })
   }
   // usersのidは数値ベースの想定だが、任意テーブルのPKは数値とは限らないため
   // 数値比較できなければ文字列としてソートする。
@@ -22,8 +26,8 @@ function collectRows(tree: TreeSnapshot): unknown[][] {
   return rows
 }
 
-export function DataTable({ tree, columns }: { tree: TreeSnapshot; columns: string[] }) {
-  const rows = collectRows(tree)
+export function DataTable({ tree, columns, table }: { tree: TreeSnapshot; columns: string[]; table: string }) {
+  const rows = collectRows(tree, table)
 
   return (
     <div className="overflow-x-auto rounded-xl border border-line">

@@ -3,18 +3,17 @@ import type { TreeSnapshot } from '../../shared/types'
 
 const PADDING = 16
 
-function LeafBox({ node, tableName }: { node: Layout['nodes'][number]; tableName: string }) {
-  // ページはこのテーブル専用ではなく、物理B+Tree全体を全テーブルで共有している
-  // (docs/spec.md「Storage」参照)。DumpTreeは選択中テーブルの行だけをRowsに
-  // 残すため、cellsが空のページは「このテーブルのデータがない」だけで、実際は
-  // 他テーブルの行で埋まっている可能性が高い。そのためラベルは実際に選択中
-  // テーブルの行を含むページにだけ付け、空のページには付けない
-  // (「リーフノードのすべてに新しいテーブルの名前が書かれる」というユーザー
-  // 指摘の修正)。
-  const hasOwnRows = (node.cells ?? []).length > 0
+/** 1つの物理B+Treeを全テーブルで共有しているため、1ページの中に複数テーブルの
+ * 行が混在することがある(ユーザー指摘「同じページの中にも違うテーブルの
+ * レコードが含まれることがある」)。node.groupsは同テーブルの行が連続する
+ * 区間ごとに分けられており、グループごとに独立したラベル+セル列を描画する。
+ * 選択中テーブル以外のグループは淡色にして「他テーブルの行」だと分かるように
+ * する。 */
+function LeafBox({ node, currentTable }: { node: Layout['nodes'][number]; currentTable: string }) {
+  const groups = node.groups ?? []
   return (
     <div
-      className="absolute flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-sm"
+      className="absolute flex overflow-hidden rounded-xl border border-line bg-surface shadow-sm"
       style={{
         left: node.x - node.width / 2 + PADDING,
         top: node.y + PADDING,
@@ -22,40 +21,62 @@ function LeafBox({ node, tableName }: { node: Layout['nodes'][number]; tableName
         height: node.height,
       }}
     >
-      <div
-        className="flex shrink-0 items-center justify-center truncate border-b border-line bg-bg px-1 text-[9px] font-bold text-muted"
-        style={{ height: LEAF_LABEL_H }}
-        title={hasOwnRows ? tableName : '他テーブルの行を含む可能性があるページ'}
-      >
-        {hasOwnRows ? tableName : '?'}
-      </div>
-      <div className="flex flex-1 overflow-hidden">
-        {(node.cells ?? []).map((cell, i) =>
-          cell.kind === 'omit' ? (
+      {groups.length === 0 ? (
+        <div className="flex w-full flex-col">
+          <div className="shrink-0" style={{ height: LEAF_LABEL_H }} />
+          <div className="flex flex-1 items-center justify-center text-[11px] text-muted">(空)</div>
+        </div>
+      ) : (
+        groups.map((g, gi) => {
+          const isCurrent = g.table === currentTable
+          return (
             <div
-              key={`omit-${i}`}
-              className="flex shrink-0 items-center justify-center bg-accent text-[10px] font-bold text-onaccent"
-              style={{ width: 56 }}
+              key={gi}
+              className={`flex shrink-0 flex-col ${gi > 0 ? 'border-l-2 border-ink/15' : ''}`}
             >
-              …{cell.count}件…
+              <div
+                className={`flex shrink-0 items-center justify-center truncate border-b px-1 text-[9px] font-bold ${
+                  isCurrent ? 'border-line bg-bg text-muted' : 'border-line bg-bg/60 text-muted/70'
+                }`}
+                style={{ height: LEAF_LABEL_H }}
+                title={isCurrent ? g.table : `他テーブル(${g.table})の行`}
+              >
+                {g.table}
+              </div>
+              <div className="flex flex-1 overflow-hidden">
+                {g.cells.map((cell, i) =>
+                  cell.kind === 'omit' ? (
+                    <div
+                      key={`omit-${i}`}
+                      className={`flex shrink-0 items-center justify-center text-[10px] font-bold ${
+                        isCurrent ? 'bg-accent text-onaccent' : 'bg-line text-muted'
+                      }`}
+                      style={{ width: 56 }}
+                    >
+                      …{cell.count}件…
+                    </div>
+                  ) : (
+                    <div
+                      key={i}
+                      className={`flex shrink-0 items-center justify-center border-l border-line px-1 font-mono text-[11px] first:border-l-0 ${
+                        !isCurrent
+                          ? 'bg-bg/60 text-muted'
+                          : cell.isNew
+                            ? 'bg-orange-50 font-bold text-accent2'
+                            : 'bg-bg text-ink'
+                      }`}
+                      style={{ width: CELL_W }}
+                      title={cell.text}
+                    >
+                      <span className="truncate">{cell.text}</span>
+                    </div>
+                  ),
+                )}
+              </div>
             </div>
-          ) : (
-            <div
-              key={i}
-              className={`flex shrink-0 items-center justify-center border-l border-line px-1 font-mono text-[11px] first:border-l-0 ${
-                cell.isNew ? 'bg-orange-50 font-bold text-accent2' : 'bg-bg text-ink'
-              }`}
-              style={{ width: CELL_W }}
-              title={cell.text}
-            >
-              <span className="truncate">{cell.text}</span>
-            </div>
-          ),
-        )}
-        {(node.cells ?? []).length === 0 && (
-          <div className="flex w-full items-center justify-center text-[11px] text-muted">(空)</div>
-        )}
-      </div>
+          )
+        })
+      )}
     </div>
   )
 }
@@ -78,11 +99,11 @@ function InternalBox({ node, isRoot }: { node: Layout['nodes'][number]; isRoot: 
 export function TreeDiagram({
   tree,
   newPKs,
-  tableName,
+  currentTable,
 }: {
   tree: TreeSnapshot
   newPKs: Set<unknown>
-  tableName: string
+  currentTable: string
 }) {
   const layout = layoutTree(tree, newPKs)
   const width = layout.width + PADDING * 2
@@ -127,7 +148,7 @@ export function TreeDiagram({
 
       {layout.nodes.map((n) =>
         n.isLeaf ? (
-          <LeafBox key={n.pageId} node={n} tableName={tableName} />
+          <LeafBox key={n.pageId} node={n} currentTable={currentTable} />
         ) : (
           <InternalBox key={n.pageId} node={n} isRoot={n.pageId === tree.rootPageId} />
         ),

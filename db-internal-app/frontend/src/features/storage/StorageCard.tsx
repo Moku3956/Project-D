@@ -59,9 +59,9 @@ export function StorageCard() {
         {!tree ? (
           <p className="pt-1 text-sm text-muted">読み込み中…</p>
         ) : tab === 'table' ? (
-          <DataTable tree={tree} columns={columns} />
+          <DataTable tree={tree} columns={columns} table={currentTable} />
         ) : (
-          <TreeDiagram tree={tree} newPKs={newPKs} tableName={currentTable} />
+          <TreeDiagram tree={tree} newPKs={newPKs} currentTable={currentTable} />
         )}
       </div>
 
@@ -79,7 +79,7 @@ export function StorageCard() {
           </div>
           <div className="min-h-0 flex-1">
             <FitToScreen>
-              <TreeDiagram tree={tree} newPKs={newPKs} tableName={currentTable} />
+              <TreeDiagram tree={tree} newPKs={newPKs} currentTable={currentTable} />
             </FitToScreen>
           </div>
         </div>

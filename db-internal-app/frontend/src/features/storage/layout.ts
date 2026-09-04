@@ -14,6 +14,12 @@ const TAIL_COUNT = 4 // 先頭2件+末尾2件
 
 export type Cell = { kind: 'row'; text: string; isNew: boolean } | { kind: 'omit'; count: number }
 
+/** 1つの物理B+Treeを全テーブルで共有しているため、1ページ(葉)の中に複数
+ * テーブルの行が混在しうる。同じテーブルの行が連続する区間ごとにグループ化し、
+ * グループ単位でテーブル名ラベル+セル列を描画する(ユーザー指摘「同じページの
+ * 中にも違うテーブルのレコードが含まれることがある」への対応)。 */
+export type LeafGroup = { table: string; cells: Cell[] }
+
 export type LayoutNode = {
   pageId: number
   isLeaf: boolean
@@ -21,7 +27,7 @@ export type LayoutNode = {
   y: number
   width: number
   height: number
-  cells?: Cell[] // 葉のみ
+  groups?: LeafGroup[] // 葉のみ
 }
 
 export type LayoutEdge = {
@@ -69,6 +75,33 @@ function leafWidth(cells: Cell[]): number {
   return cells.reduce((w, c) => w + (c.kind === 'omit' ? OMIT_W : CELL_W), 0)
 }
 
+/** rowsをrowTables(同じ長さの並行配列)で「同じテーブルが連続する区間」ごとに
+ * 分割する。複合キーはtableIDを先頭に持つため、同じページ内の同テーブルの
+ * セルはソート順で連続しており、単純な隣接比較でグループ化できる。 */
+function groupByTable(rows: unknown[][], rowTables: string[] | undefined): { table: string; rows: unknown[][] }[] {
+  const groups: { table: string; rows: unknown[][] }[] = []
+  rows.forEach((row, i) => {
+    const table = rowTables?.[i] ?? ''
+    const last = groups[groups.length - 1]
+    if (last && last.table === table) {
+      last.rows.push(row)
+    } else {
+      groups.push({ table, rows: [row] })
+    }
+  })
+  return groups
+}
+
+function leafGroups(page: PageSnapshot | undefined, newPKs: Set<unknown>): LeafGroup[] {
+  const rawGroups = groupByTable(page?.rows ?? [], page?.rowTables)
+  return rawGroups.map((g) => ({ table: g.table, cells: truncateCells(g.rows, newPKs) }))
+}
+
+function groupsWidth(groups: LeafGroup[]): number {
+  if (groups.length === 0) return CELL_W // 空リーフの「(空)」表示ぶんの最低幅
+  return groups.reduce((w, g) => w + leafWidth(g.cells), 0)
+}
+
 /** 内部ノードのchildren(セルのchild + RightmostChild)と、各境界のラベルを組み立てる。
  * keysはPKそのもの(パディングされた長い文字列のことがある)なので、ラベルは
  * truncateFieldで必ず短く切り詰める。 */
@@ -100,7 +133,7 @@ export function layoutTree(tree: TreeSnapshot, newPKs: Set<unknown>): Layout {
     const page = tree.pages[pageId]
     if (!page) return INTERNAL_W
     if (page.isLeaf) {
-      return leafWidth(truncateCells(page.rows ?? [], newPKs))
+      return groupsWidth(leafGroups(page, newPKs))
     }
     const childEdges = childEdgesOf(page)
     if (childEdges.length === 0) return INTERNAL_W
@@ -120,15 +153,15 @@ export function layoutTree(tree: TreeSnapshot, newPKs: Set<unknown>): Layout {
         y,
         width: INTERNAL_W,
         height: CELL_H + LEAF_LABEL_H,
-        cells: [],
+        groups: [],
       })
       return leftX + INTERNAL_W
     }
 
     if (page.isLeaf) {
-      const cells = truncateCells(page.rows ?? [], newPKs)
-      const width = Math.max(leafWidth(cells), 10)
-      nodes.push({ pageId, isLeaf: true, x: leftX + width / 2, y, width, height: CELL_H + LEAF_LABEL_H, cells })
+      const groups = leafGroups(page, newPKs)
+      const width = Math.max(groupsWidth(groups), 10)
+      nodes.push({ pageId, isLeaf: true, x: leftX + width / 2, y, width, height: CELL_H + LEAF_LABEL_H, groups })
       return leftX + width
     }
 

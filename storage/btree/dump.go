@@ -22,7 +22,8 @@ type PageSnapshot struct {
 	Keys           []string    // 内部ノードのみ。複合キーを人間可読な形にデコードしたもの
 	ChildPageIDs   []uint32    // 内部ノードのみ。Keys[i]はChildPageIDs[i]の左を担当する(左子規約)
 	RightmostChild uint32      // 内部ノードのみ。どのキーとも組まない最後の子
-	Rows           []types.Row // 葉ノードのみ。KVそのもの
+	Rows           []types.Row // 葉ノードのみ。KVそのもの(全テーブル分。どのテーブルの行かはRowTables参照)
+	RowTables      []string    // 葉ノードのみ。Rows[i]が属するテーブル名(Rowsと同じ長さ・同じ並び順)
 	NextLeafID     uint32      // 葉ノードのみ。範囲スキャン用の次の葉へのポインタ
 }
 
@@ -32,14 +33,15 @@ type PageSnapshot struct {
 // 変更を避ける」参照)。
 //
 // 1つのB+Treeファイルは複数テーブルのセルを同じキー空間・同じページに混在させて
-// 保持しうるため(storage/btree/docs/spec.md「キーフォーマット」参照)、葉ノードの
-// セルはschema.TableIDに一致するものだけをRowsに含める。一致しないセルは無視する
-// (Scan()と同じ判定方法)。
+// 保持しうるため(storage/btree/docs/spec.md「キーフォーマット」参照)、schemasは
+// 「セルが実際にどのテーブルのものであっても正しくデコードできる」ようtableID→
+// Schemaの全件マップを受け取る(1テーブルだけにフィルタしない)。schemasに存在
+// しないtableIDのセルは無視する(削除済みテーブルの残骸セル等、通常は発生しない)。
 //
 // バッファプール経由で読む(page.DiskManagerを直接読まない)。No-Force方式のため、
 // コミット済みでもディスクにはまだ反映されず、バッファプール上のdirtyページだけが
 // 最新の場合がある。
-func (bt *BTree) DumpTree(schema *types.Schema) (*TreeSnapshot, error) {
+func (bt *BTree) DumpTree(schemas map[uint32]*types.Schema) (*TreeSnapshot, error) {
 	snapshot := &TreeSnapshot{
 		RootPageID: bt.disk.RootPageID(),
 		Pages:      make(map[uint32]PageSnapshot),
@@ -47,13 +49,13 @@ func (bt *BTree) DumpTree(schema *types.Schema) (*TreeSnapshot, error) {
 	if snapshot.RootPageID == page.NoPageID {
 		return snapshot, nil
 	}
-	if err := bt.dumpPage(snapshot.RootPageID, schema, snapshot, make(map[uint32]bool)); err != nil {
+	if err := bt.dumpPage(snapshot.RootPageID, schemas, snapshot, make(map[uint32]bool)); err != nil {
 		return nil, err
 	}
 	return snapshot, nil
 }
 
-func (bt *BTree) dumpPage(pageID uint32, schema *types.Schema, snapshot *TreeSnapshot, visited map[uint32]bool) error {
+func (bt *BTree) dumpPage(pageID uint32, schemas map[uint32]*types.Schema, snapshot *TreeSnapshot, visited map[uint32]bool) error {
 	if visited[pageID] {
 		return nil
 	}
@@ -70,15 +72,19 @@ func (bt *BTree) dumpPage(pageID uint32, schema *types.Schema, snapshot *TreeSna
 
 	if ps.IsLeaf {
 		rows := make([]types.Row, 0, n)
+		rowTables := make([]string, 0, n)
 		for i := 0; i < n; i++ {
 			cell := p.CellAt(i)
-			if cellTableID(cell) != schema.TableID {
+			schema, ok := schemas[cellTableID(cell)]
+			if !ok {
 				continue
 			}
 			_, _, row := decodeLeafCell(cell, schema)
 			rows = append(rows, row)
+			rowTables = append(rowTables, schema.TableName)
 		}
 		ps.Rows = rows
+		ps.RowTables = rowTables
 		ps.NextLeafID = nextLeafID(p)
 		snapshot.Pages[pageID] = ps
 		return nil
@@ -98,12 +104,12 @@ func (bt *BTree) dumpPage(pageID uint32, schema *types.Schema, snapshot *TreeSna
 	snapshot.Pages[pageID] = ps
 
 	for _, childID := range children {
-		if err := bt.dumpPage(childID, schema, snapshot, visited); err != nil {
+		if err := bt.dumpPage(childID, schemas, snapshot, visited); err != nil {
 			return err
 		}
 	}
 	if ps.RightmostChild != page.NoPageID {
-		if err := bt.dumpPage(ps.RightmostChild, schema, snapshot, visited); err != nil {
+		if err := bt.dumpPage(ps.RightmostChild, schemas, snapshot, visited); err != nil {
 			return err
 		}
 	}
