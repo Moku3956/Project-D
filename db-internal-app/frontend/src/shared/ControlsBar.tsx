@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useDbInternal } from './store'
+import { MAX_RANDOM_ID, useDbInternal } from './store'
 import { useI18n } from './i18n'
 import { SQL_MODES } from './sqlTemplates'
 
@@ -56,7 +56,7 @@ export function ControlsBar() {
           <input
             type="number"
             min={1}
-            max={2000}
+            max={MAX_RANDOM_ID}
             value={seedCount}
             onChange={(e) => setSeedCount(Number(e.target.value))}
             className="w-20 rounded-lg border border-line bg-bg px-2 py-2 text-xs text-ink outline-none focus:border-accent"

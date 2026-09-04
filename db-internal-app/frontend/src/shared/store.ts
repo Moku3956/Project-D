@@ -13,7 +13,7 @@ const DEFAULT_TABLE = 'users'
 // 文字列は辞書順ソートされる(storage/btree/cell.go compareValues)ため、
 // "id-2" < "id-10" のような直感に反する並びを避けるべく、数値部分を
 // ゼロ埋めしてから残りをパディングする。
-const ID_NUMERIC_DIGITS = 6 // 999,999件まで辞書順=数値順が一致する
+const ID_NUMERIC_DIGITS = 3 // 999件まで辞書順=数値順が一致する(MAX_RANDOM_IDと合わせる)
 const ID_COLUMN_LENGTH = 600
 const NAME_COLUMN_LENGTH = 50 // nameはもうパディングしないので実際の値で足りる長さ
 
@@ -131,16 +131,21 @@ function existingNumericIds(tree: TreeSnapshot | null, table: string): Set<numbe
   return ids
 }
 
-// ID_NUMERIC_DIGITSが6桁なのでこの範囲に収める。
-const MAX_RANDOM_ID = 999999
+// 「桁数が大きすぎる」というユーザー指示により1〜999の範囲にした
+// (ID_NUMERIC_DIGITSもこれに合わせて3桁にしてある)。UIの「まとめて追加」の
+// 件数上限にも使う(範囲より多い件数を要求されるとrandomUniqueIdsが無限ループ
+// しかねないため)。
+export const MAX_RANDOM_ID = 999
 
 /** 「連番じゃなくてランダムにしよう」というユーザー指示による。既存の行(他
- * テーブルの行を除く)・同一バッチ内のidと重複しない範囲で、n件のランダムな
- * 数値idを選ぶ。 */
+ * テーブルの行を除く)・同一バッチ内のidと重複しない範囲で、最大n件のランダムな
+ * 数値idを選ぶ。範囲(1〜MAX_RANDOM_ID)より空きが少ない場合は、無限ループせず
+ * 採れるだけ採って返す(呼び出し側のUIでも上限は制御するが、念のための保険)。 */
 function randomUniqueIds(n: number, exclude: Set<number>): number[] {
   const used = new Set(exclude)
   const picked: number[] = []
-  while (picked.length < n) {
+  const want = Math.min(n, Math.max(MAX_RANDOM_ID - used.size, 0))
+  while (picked.length < want) {
     const candidate = 1 + Math.floor(Math.random() * MAX_RANDOM_ID)
     if (used.has(candidate)) continue
     used.add(candidate)
@@ -240,16 +245,20 @@ export const useDbInternal = create<State>((set, get) => ({
     set({ busy: true, error: null })
     const BATCH_SIZE = 25 // 直列だと数千件で数分かかるため、まとめて並行実行する
     try {
+      // idの空き範囲(MAX_RANDOM_ID)がnより少ない場合、randomUniqueIdsはn件
+      // 未満しか返さない。ループの範囲・「最後の1件」判定はidsの実際の長さを
+      // 基準にする(nのままだと、最後のINSERTにツリー取得フラグが一度も立たず、
+      // 実際には挿入されたのに画面が更新されない)。
       const ids = randomUniqueIds(n, existingNumericIds(prevTree, currentTable))
       let firstError: string | null = null
       let finalResult: ExecResponse | null = null
       // 木のダンプはサーバー側でページ全体を辿るコストがあるため、毎回は要求せず
       // 一番最後のINSERTでだけツリーを取得する。
-      for (let batchStart = 0; batchStart < n && !firstError; batchStart += BATCH_SIZE) {
-        const batchEnd = Math.min(batchStart + BATCH_SIZE, n)
+      for (let batchStart = 0; batchStart < ids.length && !firstError; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, ids.length)
         const results = await Promise.all(
           ids.slice(batchStart, batchEnd).map((id, k) => {
-            const wantTree = batchStart + k === n - 1
+            const wantTree = batchStart + k === ids.length - 1
             return execSql(
               `INSERT INTO ${currentTable} VALUES ('${paddedSeedId(id)}', '${randomName()}')`,
               wantTree ? currentTable : undefined,
