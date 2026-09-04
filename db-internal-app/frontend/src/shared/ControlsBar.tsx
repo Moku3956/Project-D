@@ -103,10 +103,7 @@ export function ControlsBar() {
       <div className="h-14 w-px shrink-0 bg-line" />
 
       <div className="flex min-w-[380px] flex-1 flex-col gap-2">
-        <div>
-          <h2 className="text-xs font-bold text-muted">{t('editorTitle')}</h2>
-          <p className="pt-0.5 text-[11px] text-muted">{t('editorPlaceholder')}</p>
-        </div>
+        <h2 className="text-xs font-bold text-muted">{t('editorTitle')}</h2>
         <div className="flex items-center gap-2">
           <div className="flex shrink-0 gap-1 rounded-full bg-bg p-1 text-[11px] font-bold">
             {MODES.map((m) => (

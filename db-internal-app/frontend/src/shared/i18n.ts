@@ -47,11 +47,7 @@ const strings = {
   appSubtitle: { ja: '実際のDBの中身', en: "What's really inside the DB" },
   reset: { ja: 'リセット', en: 'Reset' },
 
-  editorTitle: { ja: 'エディター', en: 'Editor' },
-  editorPlaceholder: {
-    ja: 'INSERT, DELETE, UPDATEを自由に書けます',
-    en: 'Write INSERT, DELETE, UPDATE freely',
-  },
+  editorTitle: { ja: 'エディター (INSERT, DELETE, UPDATEを自由に書けます)', en: 'Editor (Write INSERT, DELETE, UPDATE freely)' },
   run: { ja: '実行 ▸', en: 'Run ▸' },
   running: { ja: '実行中…', en: 'Running…' },
   addRandom: { ja: 'ランダム追加', en: 'Add Random' },
