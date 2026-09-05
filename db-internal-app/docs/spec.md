@@ -118,6 +118,8 @@ CREATE TABLEしたテーブルにその後何度もINSERTし、B+Treeが分割�
 
 この結果、フロントエンドは常に短い素のPK値(例: `'76'`)だけを送ればよくなった。`store.ts`の`paddedSeedId()`は不要になり削除、`seedMany`は素のidをそのままSQLに埋め込むだけになった。`DataTable.tsx`の行クリックも、生の(パディング込みの)PK値ではなく`stripPadding`した短い値を`fillTemplateForRow`に渡すよう変更した(バックエンドが再度パディングしてくれるため)。
 
+**ページ上部にB+Tree自体の簡単な説明欄を追加した(ユーザー指示)。** `shared/BTreeExplainer.tsx`。既存のカードと同じ見た目(角丸・枠線・白背景)で、`TopBar`の直下・タブ切り替えより上に置く。中身は「データは全て葉に入り、上の階層は索引の役割だけ」「ページがいっぱいになると自動で分裂し、バランスが保たれる」という、B+Treeそのものの一般的な説明(このアプリ固有のパディング等の実装トリックには触れない)。i18n(`btreeExplainerTitle`/`btreeExplainerBody`)で日英対応。
+
 **日本語/英語の切り替えに対応した(ユーザー確定済み)。** 「JapaneseとEnglishの切り替えができるようにしよう」というユーザー指示による。`shared/i18n.ts`にキー→{ja, en}の対訳辞書と、現在の表示言語を保持するZustandストア(`useLocaleStore`)を実装した。`{name}`形式のプレースホルダー置換にのみ対応する簡易実装で、外部i18nライブラリは導入していない(文字列数が少なく、複数形/日付フォーマット等の複雑なルールが不要なため)。
 
 - 初期値は`localStorage`に保存済みの言語があればそれを使い、なければ`navigator.language`から自動判定する(日本語ブラウザなら`ja`、それ以外は`en`)。切り替え後の選択は`localStorage`(キー`db-internal-app:locale`)に保存し、次回訪問時も引き継ぐ。セッション(サーバー側の`db_internal_sid`)とは無関係の、純粋にブラウザ側だけの表示設定。
