@@ -47,20 +47,25 @@ const strings = {
   appSubtitle: { ja: '実際のDBの中身', en: "What's really inside the DB" },
   reset: { ja: 'リセット', en: 'Reset' },
 
-  editorTitle: { ja: 'エディター', en: 'Editor' },
-  editorPlaceholder: {
-    ja: 'INSERT, DELETE, UPDATEを実行できます！',
-    en: 'You can run INSERT, DELETE, UPDATE!',
+  btreeExplainerTitle: { ja: '📚 B+Treeとは？', en: "📚 What's a B+Tree?" },
+  btreeExplainerBody: {
+    ja: 'データベースが大量のデータでも素早く探せるようにするための木構造です。実際のデータは全て一番下の「葉」に入り、それより上の階層は「どこに何があるか」を示す索引の役割だけを持ちます。1つの箱(ページ)がいっぱいになると自動で分裂し、木はいつもバランスの取れた形を保ちます。だからデータが増えても、検索の速さはほとんど落ちません。',
+    en: "A tree structure that lets a database find data quickly even as it grows huge. All the real data lives in the bottom-level \"leaves\" — every level above that is just an index pointing to where things are. When a box (page) fills up, it automatically splits, keeping the tree balanced. That's why search speed barely slows down as data grows.",
   },
+
+  editorTitle: { ja: 'エディター (INSERT, DELETE, UPDATEを自由に書けます)', en: 'Editor (Write INSERT, DELETE, UPDATE freely)' },
   run: { ja: '実行 ▸', en: 'Run ▸' },
   running: { ja: '実行中…', en: 'Running…' },
-  seedTitle: { ja: '⚡ テスト用: まとめてダミー行を投入', en: '⚡ For testing: bulk-insert dummy rows' },
-  seedButton: { ja: '件まとめてINSERT ⚡', en: 'Bulk INSERT ⚡' },
-  seedButtonTitle: {
-    ja: 'idを自動採番してダミー行をまとめてINSERTする(1ページに収まらない件数を手でクリックせず試すための機能。エディターのSQLは実行しない)',
-    en: 'Auto-generates ids and bulk-inserts dummy rows (a shortcut to exceed one page without clicking by hand; does not run the SQL in the editor)',
+  addRandom: { ja: 'ランダム追加', en: 'Add Random' },
+  addRandomTitle: {
+    ja: 'idを自動採番し、実在しそうな名前を1件だけランダムでINSERTする',
+    en: 'Auto-generates an id and inserts one row with a realistic random name',
   },
-  seedHint: { ja: 'INSERT文が指定の回数実行されます!', en: 'The INSERT statement runs the given number of times!' },
+  bulkInsert: { ja: 'まとめて追加', en: 'Bulk Insert' },
+  bulkInsertTitle: {
+    ja: 'idを自動採番してランダムな行をまとめてINSERTする',
+    en: 'Auto-generates ids and bulk-inserts random rows',
+  },
 
   storageTableHeading: { ja: 'テーブル({table})', en: 'Table ({table})' },
   storageTableDesc: { ja: '見た目はただのテーブルですが…', en: "It looks like an ordinary table, but…" },
@@ -80,6 +85,10 @@ const strings = {
   zoomIn: { ja: '拡大', en: 'Zoom in' },
 
   dataTableEmpty: { ja: 'まだ行がありません', en: 'No rows yet' },
+  rowClickHint: {
+    ja: 'クリックすると、この行の実際のidでUPDATE/DELETE文を作成します',
+    en: 'Click to build an UPDATE/DELETE statement using this row’s real id',
+  },
 
   treeEmpty: { ja: '(空)', en: '(empty)' },
   treeOmit: { ja: '…{count}件…', en: '…{count} more…' },
@@ -89,6 +98,11 @@ const strings = {
   newTableTitle: {
     ja: 't1, t2, ...という名前でテーブルを作り、すぐに切り替えます。',
     en: 'Creates a table named t1, t2, ... and switches to it right away.',
+  },
+
+  deleteNoMatch: {
+    ja: '一致する行がなく、削除されませんでした。行をクリックしてから実行するか、WHERE句の値を確認してください。',
+    en: 'No matching row was found, so nothing was deleted. Click a row first, or check the WHERE clause value.',
   },
 } satisfies Record<string, Record<Locale, string>>
 
@@ -100,4 +114,9 @@ export function useI18n() {
   const setLocale = useLocaleStore((s) => s.setLocale)
   const t = (key: StringKey, params?: Params) => interpolate(strings[key][locale], params)
   return { t, locale, setLocale }
+}
+
+/** Reactフックの外(store.ts等)からi18n文字列を取り出す非フック版。 */
+export function translate(key: StringKey, params?: Params): string {
+  return interpolate(strings[key][useLocaleStore.getState().locale], params)
 }
