@@ -104,3 +104,25 @@ func TestDumpTreeUnknownTableErrors(t *testing.T) {
 		t.Fatal("DumpTree on an unopened table should error")
 	}
 }
+
+func TestExecRejectsInsertOverPageLimit(t *testing.T) {
+	s := setupSession(t)
+
+	original := maxPagesPerSession
+	maxPagesPerSession = 1
+	t.Cleanup(func() { maxPagesPerSession = original })
+
+	if _, err := s.Exec("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
+		t.Fatalf("CREATE TABLE error: %v", err)
+	}
+
+	_, err := s.Exec("INSERT INTO users VALUES (1, 'Alice')")
+	if err == nil {
+		t.Fatal("INSERT should be rejected once the session page limit is reached")
+	}
+
+	// SELECTなど、INSERT以外の文は引き続き実行できる。
+	if _, err := s.Exec("SELECT * FROM users"); err != nil {
+		t.Fatalf("SELECT should still work once the page limit is reached: %v", err)
+	}
+}

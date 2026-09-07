@@ -108,6 +108,12 @@ func (s *Session) Close() error {
 	return s.disk.Close()
 }
 
+// maxPagesPerSession はセッション1つが確保できるページ数の上限。公開デモとして
+// 際限なくディスクを消費しないための保険(db-internal-app/docs/spec.md
+// 「公開デモとして必要なリソース制限」参照)。テストで小さい値に差し替えられる
+// よう定数ではなく変数にしている。
+var maxPagesPerSession uint32 = 1000
+
 // Exec はSQLを1文=1トランザクションの自動コミットで実行する。
 func (s *Session) Exec(sql string) (*executor.Result, error) {
 	stmt, err := parser.Parse(sql)
@@ -121,6 +127,12 @@ func (s *Session) Exec(sql string) (*executor.Result, error) {
 		if schema, err := s.cat.GetSchema(table); err == nil {
 			padPKLiterals(stmt, schema)
 		}
+	}
+	// INSERTだけがページを新規に消費しうるので、実行前に上限を確認する。現在の
+	// ページ数に対する事前チェックのため、1回のINSERTがsplitで複数ページ消費し、
+	// 結果的に上限を多少超えることはあり得る(次のINSERTから正しく拒否される)。
+	if _, ok := stmt.(*ast.InsertStatement); ok && s.disk.NumPages() >= maxPagesPerSession {
+		return nil, fmt.Errorf("session page limit (%d pages) reached", maxPagesPerSession)
 	}
 	node, err := s.pl.Plan(stmt)
 	if err != nil {
