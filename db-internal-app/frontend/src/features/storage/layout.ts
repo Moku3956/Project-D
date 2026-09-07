@@ -1,5 +1,5 @@
 import type { PageSnapshot, TreeSnapshot } from '../../shared/types'
-import { stripPadding } from './displayValue'
+import { stripPadding } from '../../shared/displayValue'
 
 export const CELL_W = 84
 export const CELL_H = 34

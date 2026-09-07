@@ -1,6 +1,7 @@
 import type { TreeSnapshot } from '../../shared/types'
 import { useI18n } from '../../shared/i18n'
-import { stripPadding } from './displayValue'
+import { useDbInternal } from '../../shared/store'
+import { stripPadding } from '../../shared/displayValue'
 
 /** TreeSnapshotの全葉ページからKVを集めて、普通のテーブル(行・列)として
  * 表示する。B+Treeのページ構造(内部の保存のされ方)と対比して、「見た目は
@@ -30,6 +31,7 @@ function collectRows(tree: TreeSnapshot, table: string): unknown[][] {
 export function DataTable({ tree, columns, table }: { tree: TreeSnapshot; columns: string[]; table: string }) {
   const rows = collectRows(tree, table)
   const { t } = useI18n()
+  const fillTemplateForRow = useDbInternal((s) => s.fillTemplateForRow)
 
   return (
     <div className="overflow-x-auto rounded-xl border border-line">
@@ -52,7 +54,12 @@ export function DataTable({ tree, columns, table }: { tree: TreeSnapshot; column
             </tr>
           ) : (
             rows.map((row, i) => (
-              <tr key={i} className="border-b border-line last:border-b-0">
+              <tr
+                key={i}
+                onClick={() => fillTemplateForRow(stripPadding(row[0]))}
+                title={t('rowClickHint')}
+                className="cursor-pointer border-b border-line last:border-b-0 hover:bg-bg"
+              >
                 {row.map((v, j) => (
                   <td key={j} className="px-4 py-2 font-mono text-ink">
                     {stripPadding(v)}

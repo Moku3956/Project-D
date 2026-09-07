@@ -20,6 +20,7 @@ import (
 	"github.com/Moku3956/Project-D/catalog"
 	"github.com/Moku3956/Project-D/executor"
 	"github.com/Moku3956/Project-D/infrastructure"
+	"github.com/Moku3956/Project-D/sql/ast"
 	"github.com/Moku3956/Project-D/sql/parser"
 	"github.com/Moku3956/Project-D/sql/planner"
 	"github.com/Moku3956/Project-D/storage/btree"
@@ -113,11 +114,36 @@ func (s *Session) Exec(sql string) (*executor.Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	// ユーザーが書くSQLは常に短い素のPK値でよいようにする(パディングは
+	// db-internal-app側の便宜機能。padding.go参照)。対象テーブルが存在しない
+	// 場合は素通しし、後続のPlanで通常のエラーとして扱わせる。
+	if table := targetTableName(stmt); table != "" {
+		if schema, err := s.cat.GetSchema(table); err == nil {
+			padPKLiterals(stmt, schema)
+		}
+	}
 	node, err := s.pl.Plan(stmt)
 	if err != nil {
 		return nil, err
 	}
 	return s.eng.Execute(node)
+}
+
+// targetTableName はSELECT/INSERT/UPDATE/DELETEの対象テーブル名を返す
+// (それ以外の文は空文字)。
+func targetTableName(stmt ast.Statement) string {
+	switch s := stmt.(type) {
+	case *ast.SelectStatement:
+		return s.Table
+	case *ast.InsertStatement:
+		return s.Table
+	case *ast.UpdateStatement:
+		return s.Table
+	case *ast.DeleteStatement:
+		return s.Table
+	default:
+		return ""
+	}
 }
 
 // TableInfo は1テーブルのメタ情報(テーブル切り替えUI用)。

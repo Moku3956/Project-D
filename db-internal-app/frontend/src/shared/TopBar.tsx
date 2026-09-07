@@ -1,19 +1,30 @@
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useDbInternal } from './store'
 import { useI18n } from './i18n'
 
 export function TopBar() {
   const reset = useDbInternal((s) => s.reset)
   const busy = useDbInternal((s) => s.busy)
+  const isHome = useLocation().pathname === '/'
+  const navigate = useNavigate()
   const { t, locale, setLocale } = useI18n()
 
   return (
     <div className="flex items-center justify-between pb-6 pt-8">
       <div>
-        <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-          <h1 className="font-sans text-xl font-bold text-ink">db-internal-app</h1>
-        </div>
-        <p className="pt-1 text-xs text-muted">{t('appSubtitle')}</p>
+        {isHome ? (
+          <h1 className="border-b-2 border-accent pb-1 font-sans text-xl font-bold text-ink">
+            {t('appName')}
+          </h1>
+        ) : (
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="text-sm font-bold text-muted hover:text-ink"
+          >
+            {t('backToHome')}
+          </button>
+        )}
       </div>
       <div className="flex items-center gap-3">
         <div className="flex rounded-full bg-bg p-1 text-xs font-bold">

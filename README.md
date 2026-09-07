@@ -1,6 +1,6 @@
 # Project-D
 
-Project-D is a monorepo consisting of a database built from scratch in Go, "**MokuDB**", and two applications that use it (a SQL learning site and a SQL battle game).
+Project-D is a monorepo consisting of a database built from scratch in Go, "**MokuDB**", and there is an application that use it for visualize database internal.
 
 ## About Me
 
@@ -8,21 +8,6 @@ I'm a third-year economics major. I study economics, but I've also been learning
 I love databases!
 You can reach out via [Email](mailto:moku3956@icloud.com).
 
-
-## Table of Contents
-
-- [Table of Contents](#table-of-contents)
-- [About MokuDB](#about-mokudb)
-- [MokuDB Features](#mokudb-features)
-  - [Supported SQL](#supported-sql)
-  - [Storage Engine](#storage-engine)
-- [Architecture](#architecture)
-- [Repository Structure](#repository-structure)
-  - [Directory Layout](#directory-layout)
-- [Setup](#setup)
-- [Usage](#usage)
-
----
 
 ## About MokuDB
 
