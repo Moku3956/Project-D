@@ -115,8 +115,10 @@ func (s *Session) Close() error {
 // よう定数ではなく変数にしている。
 var maxPagesPerSession uint32 = 1000
 
-// Exec はSQLを1文=1トランザクションの自動コミットで実行する。
-func (s *Session) Exec(sql string) (*executor.Result, error) {
+// Exec はSQLを1文=1トランザクションの自動コミットで実行する。ctxのキャンセル/
+// タイムアウトはexecutor.Engineまで届き、ロック待ち・実行を打ち切る
+// (呼び出し元のdb-internal-app/internal/api/server.go handleExecが10秒で設定)。
+func (s *Session) Exec(ctx context.Context, sql string) (*executor.Result, error) {
 	stmt, err := parser.Parse(sql)
 	if err != nil {
 		return nil, err
@@ -139,9 +141,7 @@ func (s *Session) Exec(sql string) (*executor.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO(Phase 3): クエリタイムアウト用のctxをExecの引数として受け取り、ここへ
-	// 通す(db-internal-app/internal/api/server.goのhandleExecから10秒で設定)。
-	return s.eng.Execute(context.Background(), node)
+	return s.eng.Execute(ctx, node)
 }
 
 // targetTableName はSELECT/INSERT/UPDATE/DELETEの対象テーブル名を返す

@@ -1,6 +1,7 @@
 package dbsession
 
 import (
+	"context"
 	"fmt"
 	"testing"
 )
@@ -19,14 +20,14 @@ func setupSession(t *testing.T) *Session {
 func TestExecCreateTableAndInsert(t *testing.T) {
 	s := setupSession(t)
 
-	if _, err := s.Exec("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
+	if _, err := s.Exec(context.Background(), "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
 		t.Fatalf("CREATE TABLE error: %v", err)
 	}
-	if _, err := s.Exec("INSERT INTO users VALUES (1, 'Alice')"); err != nil {
+	if _, err := s.Exec(context.Background(), "INSERT INTO users VALUES (1, 'Alice')"); err != nil {
 		t.Fatalf("INSERT error: %v", err)
 	}
 
-	res, err := s.Exec("SELECT * FROM users")
+	res, err := s.Exec(context.Background(), "SELECT * FROM users")
 	if err != nil {
 		t.Fatalf("SELECT error: %v", err)
 	}
@@ -38,12 +39,12 @@ func TestExecCreateTableAndInsert(t *testing.T) {
 func TestDumpTreeReflectsInserts(t *testing.T) {
 	s := setupSession(t)
 
-	if _, err := s.Exec("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
+	if _, err := s.Exec(context.Background(), "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
 		t.Fatalf("CREATE TABLE error: %v", err)
 	}
 	for i := 1; i <= 3; i++ {
 		sql := fmt.Sprintf("INSERT INTO users VALUES (%d, 'user-%d')", i, i)
-		if _, err := s.Exec(sql); err != nil {
+		if _, err := s.Exec(context.Background(), sql); err != nil {
 			t.Fatalf("INSERT(%d) error: %v", i, err)
 		}
 	}
@@ -67,13 +68,13 @@ func TestDumpTreeReflectsInserts(t *testing.T) {
 func TestDumpTreeAfterSplitViaExec(t *testing.T) {
 	s := setupSession(t)
 
-	if _, err := s.Exec("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
+	if _, err := s.Exec(context.Background(), "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
 		t.Fatalf("CREATE TABLE error: %v", err)
 	}
 	const n = 300
 	for i := 1; i <= n; i++ {
 		sql := fmt.Sprintf("INSERT INTO users VALUES (%d, 'user-%d')", i, i)
-		if _, err := s.Exec(sql); err != nil {
+		if _, err := s.Exec(context.Background(), sql); err != nil {
 			t.Fatalf("INSERT(%d) error: %v", i, err)
 		}
 	}
@@ -112,17 +113,17 @@ func TestExecRejectsInsertOverPageLimit(t *testing.T) {
 	maxPagesPerSession = 1
 	t.Cleanup(func() { maxPagesPerSession = original })
 
-	if _, err := s.Exec("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
+	if _, err := s.Exec(context.Background(), "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"); err != nil {
 		t.Fatalf("CREATE TABLE error: %v", err)
 	}
 
-	_, err := s.Exec("INSERT INTO users VALUES (1, 'Alice')")
+	_, err := s.Exec(context.Background(), "INSERT INTO users VALUES (1, 'Alice')")
 	if err == nil {
 		t.Fatal("INSERT should be rejected once the session page limit is reached")
 	}
 
 	// SELECTなど、INSERT以外の文は引き続き実行できる。
-	if _, err := s.Exec("SELECT * FROM users"); err != nil {
+	if _, err := s.Exec(context.Background(), "SELECT * FROM users"); err != nil {
 		t.Fatalf("SELECT should still work once the page limit is reached: %v", err)
 	}
 }
