@@ -12,6 +12,7 @@
 package dbsession
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -138,7 +139,9 @@ func (s *Session) Exec(sql string) (*executor.Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.eng.Execute(node)
+	// TODO(Phase 3): クエリタイムアウト用のctxをExecの引数として受け取り、ここへ
+	// 通す(db-internal-app/internal/api/server.goのhandleExecから10秒で設定)。
+	return s.eng.Execute(context.Background(), node)
 }
 
 // targetTableName はSELECT/INSERT/UPDATE/DELETEの対象テーブル名を返す

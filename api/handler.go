@@ -58,7 +58,7 @@ func (h *Handler) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.engine.Execute(node)
+	result, err := h.engine.Execute(r.Context(), node)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

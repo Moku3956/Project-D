@@ -3,6 +3,7 @@
 package client
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 
@@ -99,7 +100,7 @@ func (db *DB) Exec(sql string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := db.eng.Execute(node)
+	res, err := db.eng.Execute(context.Background(), node)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +132,7 @@ func (tx *Tx) Exec(sql string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := tx.db.eng.ExecuteInTxn(tx.txn, node)
+	res, err := tx.db.eng.ExecuteInTxn(context.Background(), tx.txn, node)
 	if err != nil {
 		return nil, err
 	}

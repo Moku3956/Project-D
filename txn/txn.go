@@ -1,6 +1,7 @@
 package txn
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -53,8 +54,9 @@ func (m *Manager) Begin() *Txn {
 }
 
 // RLock はテーブルの読み取りロックを取得する。txnが既にこのテーブルの読み取りまたは
-// 書き込みロックを保持していれば、再取得せずそのまま成功する(再入可能)。
-func (m *Manager) RLock(txn *Txn, table string) error {
+// 書き込みロックを保持していれば、再取得せずそのまま成功する(再入可能)。ctxが
+// キャンセルされた場合は、lockTimeoutを待たずにロック待ちを打ち切る。
+func (m *Manager) RLock(ctx context.Context, txn *Txn, table string) error {
 	if txn.holds("r:"+table) || txn.holds("w:"+table) {
 		return nil
 	}
@@ -71,13 +73,16 @@ func (m *Manager) RLock(txn *Txn, table string) error {
 		return nil
 	case <-time.After(lockTimeout):
 		return fmt.Errorf("txn %d: lock timeout on table %q", txn.ID, table)
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 // Lock はテーブルの書き込みロックを取得する。txnが既にこのテーブルの書き込みロックを
 // 保持していれば、再取得せずそのまま成功する(再入可能)。読み取りロックからの
-// アップグレードは未対応(自己デッドロックするため、あればエラーを返す)。
-func (m *Manager) Lock(txn *Txn, table string) error {
+// アップグレードは未対応(自己デッドロックするため、あればエラーを返す)。ctxが
+// キャンセルされた場合は、lockTimeoutを待たずにロック待ちを打ち切る。
+func (m *Manager) Lock(ctx context.Context, txn *Txn, table string) error {
 	if txn.holds("w:" + table) {
 		return nil
 	}
@@ -96,6 +101,8 @@ func (m *Manager) Lock(txn *Txn, table string) error {
 		return nil
 	case <-time.After(lockTimeout):
 		return fmt.Errorf("txn %d: lock timeout on table %q", txn.ID, table)
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
