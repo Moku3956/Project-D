@@ -28,6 +28,9 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	s := NewServer(dir)
+	// sessionStoreのcleanupLoopが、後続のテストが書き換えるidleTimeout等の
+	// パッケージ変数を読み続けてリークするのを防ぐため、必ず止める。
+	t.Cleanup(s.sessions.stopCleanup)
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
 	srv := httptest.NewServer(WithCORS(mux))
