@@ -1,14 +1,25 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Moku3956/Project-D/storage/btree"
 	"github.com/Moku3956/Project-D/types"
 )
 
 const sessionCookieName = "db_internal_sid"
+
+// queryTimeout は1クエリ(1回のExec)あたりの実行時間の上限。ロック待ち・実行を
+// 超過時に打ち切る(db-internal-app/docs/spec.md「公開デモとして必要な
+// リソース制限」参照)。txn.Managerの内部ロックタイムアウト(5秒)より意図的に
+// 長くしてあり、ロック待ち失敗はそちらのエラーが先に返る形にしている。テストで
+// 小さい値に差し替えられるよう定数ではなく変数にしている。
+var queryTimeout = 10 * time.Second
 
 // Server はdb-internal-appのHTTP APIサーバー。
 type Server struct {
@@ -63,8 +74,15 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := sess.Exec(req.SQL)
+	ctx, cancel := context.WithTimeout(r.Context(), queryTimeout)
+	defer cancel()
+
+	result, err := sess.Exec(ctx, req.SQL)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			writeJSON(w, http.StatusOK, execResponse{Error: fmt.Sprintf("query timed out after %s", queryTimeout)})
+			return
+		}
 		writeJSON(w, http.StatusOK, execResponse{Error: err.Error()})
 		return
 	}

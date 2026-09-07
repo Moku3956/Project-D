@@ -132,5 +132,10 @@ func (dm *DiskManager) SetRootPageID(id uint32) error {
 	return dm.writeFileHeader(id)
 }
 
+// NumPages はこれまでに確保されたページ数を返す。
+func (dm *DiskManager) NumPages() uint32 {
+	return dm.nextPageID
+}
+
 // Sync はOSのバッファをディスクにフラッシュする。
 func (dm *DiskManager) Sync() error { return dm.file.Sync() }

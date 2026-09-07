@@ -1,6 +1,7 @@
 package txn
 
 import (
+	"context"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -90,10 +91,10 @@ func TestRLockAndLock(t *testing.T) {
 	m := newManager(t)
 	txn := m.Begin()
 
-	if err := m.RLock(txn, "users"); err != nil {
+	if err := m.RLock(context.Background(), txn, "users"); err != nil {
 		t.Fatalf("RLock error: %v", err)
 	}
-	if err := m.RLock(txn, "orders"); err != nil {
+	if err := m.RLock(context.Background(), txn, "orders"); err != nil {
 		t.Fatalf("RLock error: %v", err)
 	}
 	if err := m.Commit(txn); err != nil {
@@ -101,7 +102,7 @@ func TestRLockAndLock(t *testing.T) {
 	}
 
 	txn2 := m.Begin()
-	if err := m.Lock(txn2, "users"); err != nil {
+	if err := m.Lock(context.Background(), txn2, "users"); err != nil {
 		t.Fatalf("Lock error: %v", err)
 	}
 	if err := m.Commit(txn2); err != nil {
@@ -115,13 +116,13 @@ func TestLockThenRLockIsReentrant(t *testing.T) {
 	m := newManager(t)
 	txn := m.Begin()
 
-	if err := m.Lock(txn, "monsters"); err != nil {
+	if err := m.Lock(context.Background(), txn, "monsters"); err != nil {
 		t.Fatalf("Lock error: %v", err)
 	}
 
 	done := make(chan error, 1)
 	go func() {
-		done <- m.RLock(txn, "monsters")
+		done <- m.RLock(context.Background(), txn, "monsters")
 	}()
 
 	select {
@@ -144,10 +145,10 @@ func TestRLockTwiceDoesNotDuplicateEntry(t *testing.T) {
 	m := newManager(t)
 	txn := m.Begin()
 
-	if err := m.RLock(txn, "monsters"); err != nil {
+	if err := m.RLock(context.Background(), txn, "monsters"); err != nil {
 		t.Fatalf("RLock error: %v", err)
 	}
-	if err := m.RLock(txn, "monsters"); err != nil {
+	if err := m.RLock(context.Background(), txn, "monsters"); err != nil {
 		t.Fatalf("RLock(2回目) error: %v", err)
 	}
 	if len(txn.locks) != 1 {
@@ -166,10 +167,10 @@ func TestLockUpgradeFromRLockFails(t *testing.T) {
 	m := newManager(t)
 	txn := m.Begin()
 
-	if err := m.RLock(txn, "monsters"); err != nil {
+	if err := m.RLock(context.Background(), txn, "monsters"); err != nil {
 		t.Fatalf("RLock error: %v", err)
 	}
-	if err := m.Lock(txn, "monsters"); err == nil {
+	if err := m.Lock(context.Background(), txn, "monsters"); err == nil {
 		t.Fatal("読み取りロックからのアップグレードでエラーが期待されたがnil")
 	}
 	if err := m.Rollback(txn); err != nil {
@@ -208,7 +209,7 @@ func TestLockTimeout(t *testing.T) {
 
 	// txn1が書き込みロックを取得したまま保持する
 	txn1 := m.Begin()
-	if err := m.Lock(txn1, "users"); err != nil {
+	if err := m.Lock(context.Background(), txn1, "users"); err != nil {
 		t.Fatalf("Lock error: %v", err)
 	}
 
@@ -218,7 +219,7 @@ func TestLockTimeout(t *testing.T) {
 	// lockTimeoutを短くするため、内部定数の代わりに直接goroutineで試みる
 	done := make(chan error, 1)
 	go func() {
-		done <- m.Lock(txn2, "users")
+		done <- m.Lock(context.Background(), txn2, "users")
 	}()
 
 	select {
@@ -228,6 +229,45 @@ func TestLockTimeout(t *testing.T) {
 		}
 	case <-time.After(lockTimeout + time.Second):
 		t.Fatal("タイムアウトより先にテストがタイムアウトした")
+	}
+
+	if err := m.Commit(txn1); err != nil {
+		t.Fatalf("Commit error: %v", err)
+	}
+}
+
+// ctxがキャンセルされた場合、lockTimeout(5秒)を待たずにロック待ちを打ち切って
+// ctx.Err()を返すことを確認する。
+func TestLockCancelledByContext(t *testing.T) {
+	m := newManager(t)
+
+	// txn1が書き込みロックを取得したまま保持する
+	txn1 := m.Begin()
+	if err := m.Lock(context.Background(), txn1, "users"); err != nil {
+		t.Fatalf("Lock error: %v", err)
+	}
+
+	// txn2が同じテーブルの書き込みロックを、短いタイムアウト付きのctxで要求する
+	txn2 := m.Begin()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() {
+		done <- m.Lock(ctx, txn2, "users")
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("ctxキャンセルによるエラーが期待されたがnil")
+		}
+		if elapsed := time.Since(start); elapsed >= lockTimeout {
+			t.Fatalf("lockTimeout(%v)を待ってしまった(経過: %v)。ctxのキャンセルが効いていない", lockTimeout, elapsed)
+		}
+	case <-time.After(lockTimeout):
+		t.Fatal("ctxのキャンセルより先にlockTimeoutに達した")
 	}
 
 	if err := m.Commit(txn1); err != nil {
@@ -245,7 +285,7 @@ func TestRLockConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			txn := m.Begin()
-			if err := m.RLock(txn, "users"); err != nil {
+			if err := m.RLock(context.Background(), txn, "users"); err != nil {
 				t.Errorf("RLock error: %v", err)
 				return
 			}

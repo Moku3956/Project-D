@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -54,14 +55,15 @@ func NewEngine(repo TableRepository, catalog catalogReader, txnMgr *txn.Manager)
 	return &Engine{repo: repo, catalog: catalog, txnMgr: txnMgr}
 }
 
-// Execute はSQLを1文=1トランザクションの自動コミットで実行する。
-func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
+// Execute はSQLを1文=1トランザクションの自動コミットで実行する。ctxがキャンセル
+// されると、ロック待ち・行の読み出しを打ち切ってctx.Err()を返す。
+func (e *Engine) Execute(ctx context.Context, node planner.PlanNode) (*Result, error) {
 	if result, handled, err := e.executeDDLOrTxnMarker(node); handled {
 		return result, err
 	}
 
 	t := e.txnMgr.Begin()
-	result, err := e.execLockedInTxn(t, node)
+	result, err := e.execLockedInTxn(ctx, t, node)
 	if err != nil {
 		_ = e.txnMgr.Rollback(t)
 		return nil, err
@@ -73,11 +75,11 @@ func (e *Engine) Execute(node planner.PlanNode) (*Result, error) {
 }
 
 // ExecuteInTxn はtの中でSQLを実行する。コミット/ロールバックは呼び出し元の責任。
-func (e *Engine) ExecuteInTxn(t *txn.Txn, node planner.PlanNode) (*Result, error) {
+func (e *Engine) ExecuteInTxn(ctx context.Context, t *txn.Txn, node planner.PlanNode) (*Result, error) {
 	if result, handled, err := e.executeDDLOrTxnMarker(node); handled {
 		return result, err
 	}
-	return e.execLockedInTxn(t, node)
+	return e.execLockedInTxn(ctx, t, node)
 }
 
 // executeDDLOrTxnMarker はトランザクション不要なノード(DDL・BEGIN/COMMIT/ROLLBACK)を処理する。
@@ -114,25 +116,25 @@ func (e *Engine) executeDDLOrTxnMarker(node planner.PlanNode) (result *Result, h
 }
 
 // execLockedInTxn はtでロックを取得してnodeを実行する。
-func (e *Engine) execLockedInTxn(t *txn.Txn, node planner.PlanNode) (*Result, error) {
-	if err := e.lockFor(t, node); err != nil {
+func (e *Engine) execLockedInTxn(ctx context.Context, t *txn.Txn, node planner.PlanNode) (*Result, error) {
+	if err := e.lockFor(ctx, t, node); err != nil {
 		return nil, err
 	}
-	return e.executeLocked(node, t.ID)
+	return e.executeLocked(ctx, node, t.ID)
 }
 
 // lockFor はノードが読み書きするテーブルのロックを取得する。(読み込みと書き込みクエリのロックを分ける)
-func (e *Engine) lockFor(t *txn.Txn, node planner.PlanNode) error {
+func (e *Engine) lockFor(ctx context.Context, t *txn.Txn, node planner.PlanNode) error {
 	switch n := node.(type) {
 	case *planner.InsertNode:
-		return e.txnMgr.Lock(t, n.Table)
+		return e.txnMgr.Lock(ctx, t, n.Table)
 	case *planner.UpdateNode:
-		return e.txnMgr.Lock(t, n.Table)
+		return e.txnMgr.Lock(ctx, t, n.Table)
 	case *planner.DeleteNode:
-		return e.txnMgr.Lock(t, n.Table)
+		return e.txnMgr.Lock(ctx, t, n.Table)
 	default:
 		for _, table := range tableNamesOf(node) {
-			if err := e.txnMgr.RLock(t, table); err != nil {
+			if err := e.txnMgr.RLock(ctx, t, table); err != nil {
 				return err
 			}
 		}
@@ -163,7 +165,7 @@ func tableNamesOf(node planner.PlanNode) []string {
 }
 
 // executeLocked はロック取得済みのプランノードを実行する。
-func (e *Engine) executeLocked(node planner.PlanNode, txnID uint64) (*Result, error) {
+func (e *Engine) executeLocked(ctx context.Context, node planner.PlanNode, txnID uint64) (*Result, error) {
 	exec, err := e.build(node, txnID)
 	if err != nil {
 		return nil, err
@@ -172,6 +174,11 @@ func (e *Engine) executeLocked(node planner.PlanNode, txnID uint64) (*Result, er
 
 	result := &Result{Schema: exec.Schema()}
 	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 		row, err := exec.Next()
 		if err != nil {
 			return nil, err

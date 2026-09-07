@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -169,7 +170,7 @@ func run(t *testing.T, cat *mockCatalog, eng *Engine, sql string) *Result {
 	if err != nil {
 		t.Fatalf("plan error: %v", err)
 	}
-	result, err := eng.Execute(node)
+	result, err := eng.Execute(context.Background(), node)
 	if err != nil {
 		t.Fatalf("execute error: %v", err)
 	}
@@ -188,7 +189,7 @@ func runErr(t *testing.T, cat *mockCatalog, eng *Engine, sql string) error {
 	if err != nil {
 		return err
 	}
-	_, err = eng.Execute(node)
+	_, err = eng.Execute(context.Background(), node)
 	return err
 }
 
@@ -327,7 +328,7 @@ func TestExecuteConcurrentUpdateSerializes(t *testing.T) {
 	run(t, cat, eng, "INSERT INTO users VALUES (1, 'Alice')")
 
 	holder := eng.txnMgr.Begin()
-	if err := eng.txnMgr.Lock(holder, "users"); err != nil {
+	if err := eng.txnMgr.Lock(context.Background(), holder, "users"); err != nil {
 		t.Fatalf("Lock error: %v", err)
 	}
 
@@ -343,7 +344,7 @@ func TestExecuteConcurrentUpdateSerializes(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := eng.Execute(node)
+		_, err := eng.Execute(context.Background(), node)
 		done <- err
 	}()
 

@@ -7,7 +7,9 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 )
 
 func newCookieJar(t *testing.T, rawURL string) *cookiejar.Jar {
@@ -26,6 +28,9 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
 	s := NewServer(dir)
+	// sessionStoreのcleanupLoopが、後続のテストが書き換えるidleTimeout等の
+	// パッケージ変数を読み続けてリークするのを防ぐため、必ず止める。
+	t.Cleanup(s.sessions.stopCleanup)
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
 	srv := httptest.NewServer(WithCORS(mux))
@@ -95,6 +100,37 @@ func TestExecEndpointReturnsParseErrorAsField(t *testing.T) {
 	res := postExec(t, client, srv.URL, execRequest{SQL: "NOT VALID SQL"})
 	if res.Error == "" {
 		t.Fatal("expected a parse error to be reported in the Error field, not an HTTP failure")
+	}
+}
+
+// TestExecEndpointReturnsFriendlyTimeoutError は、queryTimeoutを極端に短くして
+// 実質的に即タイムアウトする状況を作り、context.DeadlineExceededがそのまま
+// 返らず、分かりやすいメッセージに変換されて返ることを確認する。CREATE TABLEの
+// ようなDDLはロック取得・行の読み出しループを経由せずctxを見ないため、SELECT
+// (RLock + executeLockedのpull loopを通る)で確認する。
+func TestExecEndpointReturnsFriendlyTimeoutError(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"})
+	if res.Error != "" {
+		t.Fatalf("CREATE TABLE error: %s", res.Error)
+	}
+
+	original := queryTimeout
+	queryTimeout = time.Microsecond
+	t.Cleanup(func() { queryTimeout = original })
+
+	res = postExec(t, client, srv.URL, execRequest{SQL: "SELECT * FROM users"})
+	if res.Error == "" {
+		t.Fatal("expected a timeout error, got none")
+	}
+	if !strings.Contains(res.Error, "timed out") {
+		t.Errorf("Error = %q, want it to mention a timeout", res.Error)
+	}
+	if strings.Contains(res.Error, "context deadline exceeded") {
+		t.Errorf("Error = %q, should be translated to a friendly message, not the raw context error", res.Error)
 	}
 }
 
