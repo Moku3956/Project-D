@@ -44,8 +44,27 @@ function interpolate(template: string, params?: Params): string {
 }
 
 const strings = {
-  appSubtitle: { ja: '実際のDBの中身', en: "What's really inside the DB" },
+  appName: { ja: 'DB-Internal-Visualization', en: 'DB-Internal-Visualization' },
   reset: { ja: 'リセット', en: 'Reset' },
+  backToHome: { ja: '← ホームへ戻る', en: '← Back to home' },
+  homeStorageTitle: { ja: 'B+Tree', en: 'B+Tree' },
+  homeStorageDesc: {
+    ja: 'SQLを実行して、B+Treeの可視化',
+    en: 'Run SQL and visualize the B+Tree',
+  },
+  homeWalTitle: { ja: 'WAL', en: 'WAL' },
+  homeWalDesc: {
+    ja: 'SQLを実行して、WALの可視化',
+    en: 'Run SQL and visualize the WAL',
+  },
+  walPlaceholderTitle: {
+    ja: '書き込み先行ログ(WAL)の可視化',
+    en: 'Write-Ahead Log (WAL) Visualization',
+  },
+  walPlaceholderDesc: {
+    ja: '準備中です。もうしばらくお待ちください。',
+    en: 'Coming soon.',
+  },
 
   btreeExplainerTitle: { ja: '📚 B+Treeとは？', en: "📚 What's a B+Tree?" },
   btreeExplainerBody: {
