@@ -70,7 +70,7 @@ The repo is centered on MokuDB itself (the packages at the repository root), alo
 
 - **MokuDB core** (the packages at the repository root) — handles SQL execution and data persistence. Can be used from Go programs via the `client` package
 - **`db-internal-app/`** — a learning site that uses MokuDB as its backend and visualizes SQL execution internals (lexing through storage writes) in real time in the browser (in design)
-- **`sql-monster/`** — a battle game where you analyze, attack, and defend against monsters using SQL (in design; see `sql-monster/docs/spec.md` for details)
+
 
 ### Directory Layout
 
