@@ -86,7 +86,6 @@ The repo is centered on MokuDB itself (the packages at the repository root), alo
 ├── api/             # HTTP handlers (POST /query, GET /health)
 ├── cmd/server/      # HTTP server entry point
 ├── db-internal-app/ # MokuDB internals visualization app (in design)
-└── sql-monster/     # SQL battle game (in design)
 ```
 
 ---
