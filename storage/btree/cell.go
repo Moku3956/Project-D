@@ -6,7 +6,7 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// encodeCompositeKey は [tableID(4 BE)][type_tag(1)][pk_bytes] を返す。
+// encodeCompositeKey returns [tableID(4 BE)][type_tag(1)][pk_bytes].
 // type_tag: 0x01=INT, 0x02=VARCHAR
 func encodeCompositeKey(tableID uint32, v types.Value) []byte {
 	var tag byte
@@ -32,7 +32,8 @@ func encodeCompositeKey(tableID uint32, v types.Value) []byte {
 	return buf
 }
 
-// decodeCompositeKey は自己記述型の複合キーをデコードし、消費バイト数nを返す。
+// decodeCompositeKey decodes a self-describing composite key and returns the
+// number of bytes consumed, n.
 func decodeCompositeKey(b []byte) (tableID uint32, pk types.Value, n int) {
 	tableID = binary.BigEndian.Uint32(b[0:4])
 	tag := b[4]
@@ -49,12 +50,13 @@ func decodeCompositeKey(b []byte) (tableID uint32, pk types.Value, n int) {
 	return
 }
 
-// cellTableID はセルの先頭4バイトからtableIDを読む。葉/内部どちらにも使える。
+// cellTableID reads tableID from the first 4 bytes of a cell. Works for both
+// leaf and internal cells.
 func cellTableID(cell []byte) uint32 {
 	return binary.BigEndian.Uint32(cell[0:4])
 }
 
-// compareCompositeKeys はtableIDを先に、同じなら値で比較する。
+// compareCompositeKeys compares by tableID first, then by value if tableID is equal.
 func compareCompositeKeys(aID uint32, aPK types.Value, bID uint32, bPK types.Value) int {
 	if aID != bID {
 		if aID < bID {
@@ -88,8 +90,8 @@ func compareValues(a, b types.Value) int {
 	}
 }
 
-// encodeLeafCell は葉ノードのセルをエンコードする。
-// フォーマット: [compositeKey][NULLビットマップ][offset配列(各2bytes)][カラムデータ...]
+// encodeLeafCell encodes a leaf node cell.
+// Format: [compositeKey][NULL bitmap][offset array (2 bytes each)][column data...]
 func encodeLeafCell(tableID uint32, key types.Value, row types.Row, schema *types.Schema) []byte {
 	keyBytes := encodeCompositeKey(tableID, key)
 
@@ -173,7 +175,7 @@ func decodeValue(b []byte, dt types.DataType) (types.Value, int) {
 	}
 }
 
-// decodeLeafCell は葉ノードのセルをデコードしてtableID・PK・Rowを返す。
+// decodeLeafCell decodes a leaf node cell and returns tableID, PK, and Row.
 func decodeLeafCell(cell []byte, schema *types.Schema) (tableID uint32, pk types.Value, row types.Row) {
 	tableID, pk, keyLen := decodeCompositeKey(cell)
 
@@ -202,8 +204,8 @@ func decodeLeafCell(cell []byte, schema *types.Schema) (tableID uint32, pk types
 	return
 }
 
-// encodeInternalCell は内部ノードのセルをエンコードする。
-// フォーマット: [compositeKey][childPageID 4bytes]
+// encodeInternalCell encodes an internal node cell.
+// Format: [compositeKey][childPageID 4bytes]
 func encodeInternalCell(tableID uint32, key types.Value, childPageID uint32) []byte {
 	keyBytes := encodeCompositeKey(tableID, key)
 	buf := make([]byte, len(keyBytes)+4)
@@ -212,15 +214,15 @@ func encodeInternalCell(tableID uint32, key types.Value, childPageID uint32) []b
 	return buf
 }
 
-// decodeInternalCell は内部ノードのセルをデコードする。
+// decodeInternalCell decodes an internal node cell.
 func decodeInternalCell(cell []byte) (tableID uint32, key types.Value, childID uint32) {
 	tableID, key, n := decodeCompositeKey(cell)
 	childID = binary.BigEndian.Uint32(cell[n : n+4])
 	return
 }
 
-// sortCells は複合キー順にセルをソートする（バブルソート）。
-// 葉/内部どちらのセルも先頭が複合キーなので共通で使える。
+// sortCells sorts cells in composite key order (bubble sort).
+// Works for both leaf and internal cells, since both start with a composite key.
 func sortCells(cells [][]byte) {
 	for i := 0; i < len(cells); i++ {
 		for j := 0; j < len(cells)-1-i; j++ {

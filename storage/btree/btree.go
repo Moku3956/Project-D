@@ -10,11 +10,11 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// BTree はB+Treeの操作を提供する。全テーブルで単一インスタンスを共有する。
+// BTree provides B+Tree operations. A single instance is shared across all tables.
 type BTree struct {
-	disk *page.DiskManager  // ページ確保・ルートページID管理用(バッファプールが持たない操作)
-	bp   *buffer.BufferPool // 既存ページの読み書きはすべてここを経由する(No-Steal)
-	wm   *wal.WALManager    // ページ変更のRedoログ記録用
+	disk *page.DiskManager  // for page allocation and root page ID management (operations the buffer pool doesn't provide)
+	bp   *buffer.BufferPool // all reads/writes of existing pages go through here (No-Steal)
+	wm   *wal.WALManager    // for recording redo logs of page changes
 }
 
 func NewBTree(disk *page.DiskManager, bp *buffer.BufferPool, wm *wal.WALManager) (*BTree, error) {
@@ -36,7 +36,7 @@ func NewBTree(disk *page.DiskManager, bp *buffer.BufferPool, wm *wal.WALManager)
 	return bt, nil
 }
 
-// Search はtableIDとキーに対応するRowを返す。見つからない場合はnil。
+// Search returns the Row for tableID and key. Returns nil if not found.
 func (bt *BTree) Search(tableID uint32, key types.Value, schema *types.Schema) (*types.Row, error) {
 	leafID, err := bt.findLeaf(tableID, key)
 	if err != nil {
@@ -57,7 +57,7 @@ func (bt *BTree) Search(tableID uint32, key types.Value, schema *types.Schema) (
 	return &row, nil
 }
 
-// Insert はtableIDとキーとRowを挿入する。txnIDはWALのRedoログに記録される。
+// Insert inserts tableID, key, and row. txnID is recorded in the WAL redo log.
 func (bt *BTree) Insert(tableID uint32, key types.Value, row types.Row, schema *types.Schema, txnID uint64) error {
 	rootID := bt.disk.RootPageID()
 	upTableID, upKey, newPageID, err := bt.insertRecursive(rootID, tableID, key, row, schema, txnID)
@@ -86,7 +86,7 @@ func (bt *BTree) Update(tableID uint32, key types.Value, newRow types.Row, schem
 	return nil
 }
 
-// Delete はtableIDとキーに対応するレコードを削除する。
+// Delete removes the record for tableID and key.
 func (bt *BTree) Delete(tableID uint32, key types.Value, txnID uint64) error {
 	leafID, err := bt.findLeaf(tableID, key)
 	if err != nil {
@@ -105,7 +105,7 @@ func (bt *BTree) Delete(tableID uint32, key types.Value, txnID uint64) error {
 	return bt.finishPage(p, txnID, wal.OpDelete)
 }
 
-// Scan はtableIDに属する全レコードを葉ノードのリンクリストを辿って返す。
+// Scan returns all records belonging to tableID by walking the leaf nodes' linked list.
 func (bt *BTree) Scan(tableID uint32, schema *types.Schema) ([]types.Row, error) {
 	var rows []types.Row
 	leafID, err := bt.findLeftmostLeaf(bt.disk.RootPageID())
@@ -142,9 +142,9 @@ func (bt *BTree) Scan(tableID uint32, schema *types.Schema) ([]types.Row, error)
 	return rows, nil
 }
 
-// --- 内部実装 ---
+// --- Internal implementation ---
 
-// finishPageはログをwm.bufに保存し、bp上でisDirtyにする。
+// finishPage saves the log to wm.buf and marks the page dirty in bp.
 func (bt *BTree) finishPage(p *page.Page, txnID uint64, op wal.Operation) error {
 	lsn, err := bt.wm.Append(&wal.LogRecord{
 		TxnID:    txnID,
@@ -161,12 +161,12 @@ func (bt *BTree) finishPage(p *page.Page, txnID uint64, op wal.Operation) error 
 	return nil
 }
 
-// releasePage は変更を加えずにページをアンピンする。
+// releasePage unpins the page without marking it as changed.
 func (bt *BTree) releasePage(p *page.Page) {
 	bt.bp.UnpinPage(p.PageID(), false, 0)
 }
 
-// findLeaf はtableID・keyが入っているはずの葉ページのIDを返す。
+// findLeaf returns the ID of the leaf page that should contain tableID and key.
 func (bt *BTree) findLeaf(tableID uint32, key types.Value) (uint32, error) {
 	pageID := bt.disk.RootPageID()
 	for {
@@ -196,7 +196,8 @@ func (bt *BTree) findChildPageID(p *page.Page, tableID uint32, key types.Value) 
 	return p.RightmostChild()
 }
 
-// serchInLeafは探しているtable, keyに対応するセルを指定された(絞り済み)ページの中から探す。
+// searchInLeaf looks for the cell matching the given table and key within the
+// specified (already narrowed-down) page.
 func (bt *BTree) searchInLeaf(p *page.Page, tableID uint32, key types.Value) (int, bool) {
 	n := int(p.CellCount())
 	for i := 0; i < n; i++ {
@@ -213,8 +214,8 @@ func (bt *BTree) searchInLeaf(p *page.Page, tableID uint32, key types.Value) (in
 	return 0, false
 }
 
-// insertRecursive はpageIDのサブツリーにkey/rowを挿入する。
-// 分割が発生した場合は(分割tableID, 分割キー, 新しい右ページID)を返す。
+// insertRecursive inserts key/row into the subtree rooted at pageID.
+// If a split occurs, it returns (split tableID, split key, new right page ID).
 func (bt *BTree) insertRecursive(pageID uint32, tableID uint32, key types.Value, row types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
 	p, err := bt.bp.FetchPage(pageID)
 	if err != nil {
@@ -226,8 +227,8 @@ func (bt *BTree) insertRecursive(pageID uint32, tableID uint32, key types.Value,
 	return bt.insertIntoInternal(p, tableID, key, row, schema, txnID)
 }
 
-// findInsertPos は複合キー順を保つ挿入位置を返す。
-// 葉・内部どちらのセルも先頭が複合キーなので共通で使える。
+// findInsertPos returns the insertion position that preserves composite key order.
+// Works for both leaf and internal cells, since both start with a composite key.
 func (bt *BTree) findInsertPos(p *page.Page, tableID uint32, key types.Value) int {
 	n := int(p.CellCount())
 	for i := 0; i < n; i++ {
@@ -239,7 +240,8 @@ func (bt *BTree) findInsertPos(p *page.Page, tableID uint32, key types.Value) in
 	return n
 }
 
-// insertIntoLeaf はpの葉ページに挿入する。呼び出し元がFetch済みのpのアンピンはこの関数(またはsplitLeaf)が担う。
+// insertIntoLeaf inserts into leaf page p. Unpinning the already-fetched p is
+// the responsibility of this function (or splitLeaf).
 func (bt *BTree) insertIntoLeaf(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
 	cell := encodeLeafCell(tableID, key, row, schema)
 	if p.InsertCellAt(bt.findInsertPos(p, tableID, key), cell) {
@@ -251,7 +253,8 @@ func (bt *BTree) insertIntoLeaf(p *page.Page, tableID uint32, key types.Value, r
 	return bt.splitLeaf(p, tableID, key, row, schema, txnID)
 }
 
-// insertIntoInternal はpの内部ノードに挿入する。呼び出し元がFetch済みのpのアンピンはこの関数(またはsplitInternal)が担う。
+// insertIntoInternal inserts into internal node p. Unpinning the already-fetched
+// p is the responsibility of this function (or splitInternal).
 func (bt *BTree) insertIntoInternal(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
 	childID := bt.findChildPageID(p, tableID, key)
 	upTableID, upKey, newChildID, err := bt.insertRecursive(childID, tableID, key, row, schema, txnID)
@@ -272,8 +275,9 @@ func (bt *BTree) patchInternalAfterChildSplit(p *page.Page, childID uint32, upTa
 		return 0, nil, 0, nil
 	}
 
-	// childID(分割で縮んだ古い子)が占めていたポインタをnewChildIDに差し替える。
-	// キーは変わらずchildだけ変わるためセル長は同じで、その場で上書きできる。
+	// Replace the pointer that childID (the old child, now shrunk by the split)
+	// occupied with newChildID. The key stays the same and only the child
+	// changes, so the cell length is unchanged and can be overwritten in place.
 	replaced := false
 	n := int(p.CellCount())
 	for i := 0; i < n; i++ {
@@ -289,7 +293,8 @@ func (bt *BTree) patchInternalAfterChildSplit(p *page.Page, childID uint32, upTa
 		p.SetRightmostChild(newChildID)
 	}
 
-	// childID(古い子。範囲が縮んだ)をupKey未満の担当として新しいセルで追加する。
+	// Add a new cell so that childID (the old child, whose range has shrunk) is
+	// responsible for keys less than upKey.
 	cell := encodeInternalCell(upTableID, upKey, childID)
 	if p.InsertCellAt(bt.findInsertPos(p, upTableID, upKey), cell) {
 		if err := bt.finishPage(p, txnID, wal.OpInsert); err != nil {
@@ -348,7 +353,8 @@ func (bt *BTree) updateLeaf(p *page.Page, tableID uint32, key types.Value, newRo
 	return bt.splitLeaf(p, tableID, key, newRow, schema, txnID)
 }
 
-// splitLeaf はpを引き取り、分割してrightPageを新設する。p・rightPage両方のアンピンをここで行う。
+// splitLeaf takes ownership of p, splits it, and creates a new rightPage. Both
+// p and rightPage are unpinned here.
 func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
 	rightAlloc, err := bt.disk.AllocatePage(page.TypeLeaf)
 	if err != nil {
@@ -362,7 +368,7 @@ func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row ty
 	}
 	initLeafLinks(rightPage)
 
-	// 分割前にpが持っていた次のポインタを保持
+	// Keep the "next" pointer p had before the split.
 	oldNext := nextLeafID(p)
 
 	n := int(p.CellCount())
@@ -387,11 +393,12 @@ func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row ty
 		rightPage.AddCell(c)
 	}
 
-	// p → rightPage → （分割前のpの次） の順に繋ぎ直す
+	// Re-link as p → rightPage → (p's original next).
 	setNextLeafID(rightPage, oldNext)
 	setNextLeafID(p, rightPage.PageID())
-	// prev方向は未実装（呼び出し元がないため一旦コメントアウト）。ページヘッダに専用フィールドがなく、
-	// 実装するにはヘッダ拡張が必要。storage/btree/docs/spec.md参照。
+	// The prev direction is not implemented (commented out for now, since there's
+	// no caller). The page header has no dedicated field for it; implementing
+	// this would require extending the header. See storage/btree/docs/spec.md.
 	// setPrevLeafID(rightPage, p.PageID())
 
 	splitTableID, splitKey, _ := decodeCompositeKey(cells[mid])
@@ -406,7 +413,8 @@ func (bt *BTree) splitLeaf(p *page.Page, tableID uint32, key types.Value, row ty
 	return splitTableID, splitKey, rightPage.PageID(), nil
 }
 
-// splitInternal はpを引き取り、分割してnewRightを新設する。p・newRight両方のアンピンをここで行う。
+// splitInternal takes ownership of p, splits it, and creates a new newRight.
+// Both p and newRight are unpinned here.
 func (bt *BTree) splitInternal(p *page.Page, tableID uint32, key types.Value, rightChildID uint32, txnID uint64) (uint32, types.Value, uint32, error) {
 	newRightAlloc, err := bt.disk.AllocatePage(page.TypeInternal)
 	if err != nil {
@@ -419,8 +427,9 @@ func (bt *BTree) splitInternal(p *page.Page, tableID uint32, key types.Value, ri
 		return 0, nil, 0, err
 	}
 
-	// 分割前にpが持っていたRightmostChildを退避する。これはどのキーとも組まないため、
-	// セル配列(cells)には含まれず、分割後は右ページがそのまま引き継ぐ。
+	// Save the RightmostChild p had before the split. Since it isn't paired
+	// with any key, it's not included in the cells array; after the split,
+	// the right page simply inherits it.
 	oldRightmost := p.RightmostChild()
 
 	n := int(p.CellCount())
@@ -469,8 +478,9 @@ func (bt *BTree) createNewRoot(oldRootID uint32, tableID uint32, key types.Value
 	if err != nil {
 		return err
 	}
-	// findChildPageID の規約では、セルの子ポインタはそのセルのキー未満を担当する。
-	// したがって分割キー未満は旧ルート（左）、以上は新しい右ページに振り分ける。
+	// Per findChildPageID's convention, a cell's child pointer is responsible
+	// for keys less than that cell's key. So keys below the split key go to
+	// the old root (left), and keys at or above it go to the new right page.
 	cell := encodeInternalCell(tableID, key, oldRootID)
 	newRoot.AddCell(cell)
 	newRoot.SetRightmostChild(rightPageID)
@@ -498,13 +508,13 @@ func (bt *BTree) findLeftmostLeaf(pageID uint32) (uint32, error) {
 	}
 }
 
-// --- ページユーティリティ ---
+// --- Page utilities ---
 
 func initLeafLinks(p *page.Page) {
 	p.SetRightmostChild(page.NoPageID)
 }
 
-// nextLeafIDは次のリーフノードのポインタを返す。
+// nextLeafID returns the pointer to the next leaf node.
 func nextLeafID(p *page.Page) uint32 {
 	return p.RightmostChild()
 }
@@ -513,7 +523,8 @@ func setNextLeafID(p *page.Page, id uint32) {
 	p.SetRightmostChild(id)
 }
 
-// prev方向は未実装のため一旦コメントアウト。呼び出し元(splitLeaf)もコメントアウト済み。
+// The prev direction is not implemented, so this is commented out for now.
+// The caller (splitLeaf) is also commented out.
 // func setPrevLeafID(p *page.Page, id uint32) {
 // 	_ = id
 // }

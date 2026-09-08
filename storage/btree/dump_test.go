@@ -7,6 +7,7 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
+// TestDumpTreeEmptyRoot checks that DumpTree on a fresh tree returns a single empty leaf root.
 func TestDumpTreeEmptyRoot(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -101,10 +102,12 @@ func TestDecodePageBytesInternalPageReturnsNil(t *testing.T) {
 	}
 }
 
+// TestDumpTreeReflectsUncommittedInsert checks that DumpTree sees an insert
+// immediately via the buffer pool, even before any flush to disk.
 func TestDumpTreeReflectsUncommittedInsert(t *testing.T) {
-	// No-Forceでは、コミット後でもディスクにはまだ書かれず、バッファプール上の
-	// dirtyページだけが最新の場合がある。DumpTreeがbt.bp経由で読むこと(disk直読みで
-	// はないこと)を確認する回帰テスト。
+	// Under No-Force, a commit doesn't guarantee the change is on disk yet; the
+	// buffer pool's dirty page may be the only up-to-date copy. This is a
+	// regression test that DumpTree reads through bt.bp, not the disk directly.
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
 	schema := testSchema()
@@ -127,6 +130,9 @@ func TestDumpTreeReflectsUncommittedInsert(t *testing.T) {
 	}
 }
 
+// TestDumpTreeAfterSplitBecomesInternal inserts enough rows to trigger a split
+// and checks that DumpTree reports an internal root with all rows accounted for
+// across the leaves.
 func TestDumpTreeAfterSplitBecomesInternal(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -162,7 +168,7 @@ func TestDumpTreeAfterSplitBecomesInternal(t *testing.T) {
 		t.Errorf("Keys/ChildPageIDs length mismatch: %d vs %d", len(root.Keys), len(root.ChildPageIDs))
 	}
 
-	// 全ての葉ページのRowsを合計すると挿入件数と一致するはず
+	// Summing Rows across all leaf pages should equal the number of inserts.
 	total := 0
 	leafCount := 0
 	for _, ps := range snap.Pages {

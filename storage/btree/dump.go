@@ -7,40 +7,44 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// TreeSnapshot はB+Treeの可視化用スナップショット。db-internal-appがクエリ実行
-// 前後に取得し、差分表示に使う(db-internal-app/docs/spec.md「Storage」参照)。
+// TreeSnapshot is a visualization snapshot of the B+Tree. db-internal-app takes
+// one before and after query execution and uses them to show the diff (see
+// db-internal-app/docs/spec.md "Storage").
 type TreeSnapshot struct {
 	RootPageID uint32
 	Pages      map[uint32]PageSnapshot
 }
 
-// PageSnapshot は1ページ分の可視化用データ。スロット配列・セルの生バイト列などの
-// 内部フォーマットは含めない(KVが分かれば十分という方針)。
+// PageSnapshot is visualization data for a single page. It excludes internal
+// formats like the slot array and raw cell bytes (the policy is that knowing
+// the KVs is enough).
 type PageSnapshot struct {
 	PageID         uint32
 	IsLeaf         bool
-	Keys           []string    // 内部ノードのみ。複合キーを人間可読な形にデコードしたもの
-	ChildPageIDs   []uint32    // 内部ノードのみ。Keys[i]はChildPageIDs[i]の左を担当する(左子規約)
-	RightmostChild uint32      // 内部ノードのみ。どのキーとも組まない最後の子
-	Rows           []types.Row // 葉ノードのみ。KVそのもの(全テーブル分。どのテーブルの行かはRowTables参照)
-	RowTables      []string    // 葉ノードのみ。Rows[i]が属するテーブル名(Rowsと同じ長さ・同じ並び順)
-	NextLeafID     uint32      // 葉ノードのみ。範囲スキャン用の次の葉へのポインタ
+	Keys           []string    // internal nodes only. Composite keys decoded into a human-readable form
+	ChildPageIDs   []uint32    // internal nodes only. Keys[i] is responsible for the left side of ChildPageIDs[i] (left-child convention)
+	RightmostChild uint32      // internal nodes only. The one child with no key of its own
+	Rows           []types.Row // leaf nodes only. The KVs themselves (across all tables; see RowTables for which table each row belongs to)
+	RowTables      []string    // leaf nodes only. The table name Rows[i] belongs to (same length and order as Rows)
+	NextLeafID     uint32      // leaf nodes only. Pointer to the next leaf, for range scans
 }
 
-// DumpTree はRootPageIDからツリー全体を読み取り専用で辿り、可視化用にシリアライズ
-// する。既存のSearch/Insert/Delete/Scanには一切手を入れず、新規の読み取り経路として
-// 追加する(db-internal-app/docs/spec.md「ストレージ可視化は既存コードへの侵襲的な
-// 変更を避ける」参照)。
+// DumpTree walks the whole tree read-only starting from RootPageID and
+// serializes it for visualization. It doesn't touch the existing
+// Search/Insert/Delete/Scan at all; it's added as a new, separate read path
+// (see db-internal-app/docs/spec.md "Storage visualization avoids invasive
+// changes to existing code").
 //
-// 1つのB+Treeファイルは複数テーブルのセルを同じキー空間・同じページに混在させて
-// 保持しうるため(storage/btree/docs/spec.md「キーフォーマット」参照)、schemasは
-// 「セルが実際にどのテーブルのものであっても正しくデコードできる」ようtableID→
-// Schemaの全件マップを受け取る(1テーブルだけにフィルタしない)。schemasに存在
-// しないtableIDのセルは無視する(削除済みテーブルの残骸セル等、通常は発生しない)。
+// A single B+Tree file can hold multiple tables' cells mixed together in the
+// same key space and the same pages (see storage/btree/docs/spec.md "Key
+// format"), so schemas takes a full tableID -> Schema map (not filtered to
+// one table) so that a cell can be decoded correctly no matter which table it
+// actually belongs to. Cells whose tableID isn't in schemas are ignored
+// (e.g. leftover cells from a dropped table; this shouldn't normally happen).
 //
-// バッファプール経由で読む(page.DiskManagerを直接読まない)。No-Force方式のため、
-// コミット済みでもディスクにはまだ反映されず、バッファプール上のdirtyページだけが
-// 最新の場合がある。
+// Reads go through the buffer pool (not page.DiskManager directly). Because
+// of the No-Force policy, a commit doesn't guarantee the change is on disk
+// yet; the buffer pool's dirty page may be the only up-to-date copy.
 func (bt *BTree) DumpTree(schemas map[uint32]*types.Schema) (*TreeSnapshot, error) {
 	snapshot := &TreeSnapshot{
 		RootPageID: bt.disk.RootPageID(),

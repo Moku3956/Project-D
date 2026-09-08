@@ -8,8 +8,9 @@ import (
 
 const cellTestTableID = uint32(5)
 
-// ---- 正常系 ----
+// ---- Happy path ----
 
+// TestEncodeDecodeCompositeKeyInt round-trips a composite key built from an int PK.
 func TestEncodeDecodeCompositeKeyInt(t *testing.T) {
 	original := types.IntValue{V: 42}
 	b := encodeCompositeKey(cellTestTableID, original)
@@ -27,6 +28,7 @@ func TestEncodeDecodeCompositeKeyInt(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeCompositeKeyString round-trips a composite key built from a string PK.
 func TestEncodeDecodeCompositeKeyString(t *testing.T) {
 	original := types.StringValue{V: "hello"}
 	b := encodeCompositeKey(cellTestTableID, original)
@@ -44,12 +46,15 @@ func TestEncodeDecodeCompositeKeyString(t *testing.T) {
 	}
 }
 
+// TestCompareCompositeKeysDifferentTable checks that composite keys compare by
+// tableID first, regardless of the PK value.
 func TestCompareCompositeKeysDifferentTable(t *testing.T) {
 	if compareCompositeKeys(1, types.IntValue{V: 999}, 2, types.IntValue{V: 1}) >= 0 {
 		t.Error("tableID=1 should be less than tableID=2 regardless of pk")
 	}
 }
 
+// TestCompareValuesInt checks that int values compare in numeric order.
 func TestCompareValuesInt(t *testing.T) {
 	a := types.IntValue{V: 1}
 	b := types.IntValue{V: 2}
@@ -66,6 +71,7 @@ func TestCompareValuesInt(t *testing.T) {
 	}
 }
 
+// TestCompareValuesString checks that string values compare in lexicographic order.
 func TestCompareValuesString(t *testing.T) {
 	a := types.StringValue{V: "apple"}
 	b := types.StringValue{V: "banana"}
@@ -78,6 +84,7 @@ func TestCompareValuesString(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeLeafCell round-trips a leaf cell (key + row) through encode/decode.
 func TestEncodeDecodeLeafCell(t *testing.T) {
 	schema := testSchema()
 	key := types.IntValue{V: 1}
@@ -102,6 +109,8 @@ func TestEncodeDecodeLeafCell(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeLeafCellNull checks that a leaf cell with a NULL column value
+// round-trips correctly.
 func TestEncodeDecodeLeafCellNull(t *testing.T) {
 	schema := testSchema()
 	key := types.IntValue{V: 2}
@@ -118,6 +127,8 @@ func TestEncodeDecodeLeafCellNull(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeInternalCell round-trips an internal cell (key + child page ID)
+// through encode/decode.
 func TestEncodeDecodeInternalCell(t *testing.T) {
 	key := types.IntValue{V: 10}
 	childID := uint32(99)
@@ -137,6 +148,7 @@ func TestEncodeDecodeInternalCell(t *testing.T) {
 	}
 }
 
+// TestCellTableID checks that cellTableID extracts the correct table ID from an encoded key.
 func TestCellTableID(t *testing.T) {
 	cell := encodeCompositeKey(42, types.IntValue{V: 1})
 	if cellTableID(cell) != 42 {
