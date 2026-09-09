@@ -137,6 +137,85 @@ func TestDelete(t *testing.T) {
 	}
 }
 
+func TestUpdateReplacesRow(t *testing.T) {
+	bt, cleanup := setupBTree(t)
+	defer cleanup()
+	schema := testSchema()
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
+		t.Fatal(err)
+	}
+
+	newRow := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alicia"}}}
+	if err := bt.Update(testTableID, types.IntValue{V: 1}, newRow, schema, testTxnID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := bt.Search(testTableID, types.IntValue{V: 1}, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected row, got nil")
+	}
+	if name := got.Values[1].(types.StringValue).V; name != "Alicia" {
+		t.Errorf("name = %q, want %q", name, "Alicia")
+	}
+}
+
+func TestUpdateNotFound(t *testing.T) {
+	bt, cleanup := setupBTree(t)
+	defer cleanup()
+	schema := testSchema()
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 99}, types.StringValue{V: "Nobody"}}}
+	if err := bt.Update(testTableID, types.IntValue{V: 99}, row, schema, testTxnID); err == nil {
+		t.Error("expected error for missing key, got nil")
+	}
+}
+
+// splitで複数の葉ページに分かれた木でも、Updateが正しい葉まで辿り着いて
+// 対象の行だけを書き換えられることを確認する(updateIntoInternalの経路)。
+func TestUpdateAcrossSplitTree(t *testing.T) {
+	bt, cleanup := setupBTree(t)
+	defer cleanup()
+	schema := testSchema()
+
+	const n = 100
+	for i := int64(1); i <= n; i++ {
+		row := types.Row{Values: []types.Value{types.IntValue{V: i}, types.StringValue{V: "user"}}}
+		if err := bt.Insert(testTableID, types.IntValue{V: i}, row, schema, testTxnID); err != nil {
+			t.Fatalf("Insert(%d): %v", i, err)
+		}
+	}
+
+	newRow := types.Row{Values: []types.Value{types.IntValue{V: 50}, types.StringValue{V: "updated"}}}
+	if err := bt.Update(testTableID, types.IntValue{V: 50}, newRow, schema, testTxnID); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := bt.Search(testTableID, types.IntValue{V: 50}, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected row, got nil")
+	}
+	if name := got.Values[1].(types.StringValue).V; name != "updated" {
+		t.Errorf("name = %q, want %q", name, "updated")
+	}
+
+	// 他の行は影響を受けていないこと。
+	rows, err := bt.Scan(testTableID, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != n {
+		t.Errorf("件数 = %d, want %d", len(rows), n)
+	}
+}
+
 func TestMultipleTablesIsolated(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
