@@ -121,7 +121,9 @@ export function WalCard() {
                             <button
                               type="button"
                               onClick={() => toggle(r.lsn)}
-                              className="ml-auto text-[11px] font-bold text-accent hover:underline"
+                              aria-expanded={isExpanded}
+                              aria-label={t('walExpandToggle')}
+                              className="ml-auto flex h-6 w-6 items-center justify-center rounded-full border border-line bg-surface text-xs font-bold text-accent hover:border-accent hover:bg-bg"
                             >
                               {isExpanded ? '▾' : '▸'}
                             </button>
