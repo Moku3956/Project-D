@@ -70,6 +70,22 @@ func (bt *BTree) Insert(tableID uint32, key types.Value, row types.Row, schema *
 	return nil
 }
 
+// Update はtableIDとキーに対応する行をnewRowで置き換える。PRIMARY KEYは変わらない
+// ため対象の葉ページは元の行と同じで、よくあるケース(古いセルを消した後にnewRowが
+// 同じページに収まる)は1回のページ変更で済み、OpUpdateレコード1件だけがWALに残る。
+// (単純にDelete+Insertを呼ぶと、同じ内容でも常に2件のレコードになってしまう。)
+func (bt *BTree) Update(tableID uint32, key types.Value, newRow types.Row, schema *types.Schema, txnID uint64) error {
+	rootID := bt.disk.RootPageID()
+	upTableID, upKey, newPageID, err := bt.updateRecursive(rootID, tableID, key, newRow, schema, txnID)
+	if err != nil {
+		return err
+	}
+	if newPageID != 0 {
+		return bt.createNewRoot(rootID, upTableID, upKey, newPageID, txnID)
+	}
+	return nil
+}
+
 // Delete はtableIDとキーに対応するレコードを削除する。
 func (bt *BTree) Delete(tableID uint32, key types.Value, txnID uint64) error {
 	leafID, err := bt.findLeaf(tableID, key)
@@ -243,6 +259,14 @@ func (bt *BTree) insertIntoInternal(p *page.Page, tableID uint32, key types.Valu
 		bt.releasePage(p)
 		return 0, nil, 0, err
 	}
+	return bt.patchInternalAfterChildSplit(p, childID, upTableID, upKey, newChildID, txnID)
+}
+
+// patchInternalAfterChildSplit は、子ページ(childID)を処理した結果 newChildID
+// (分割が起きていれば新しい右ページのID、起きていなければ0)を受け取り、pの
+// 子ポインタ・セルを更新する。insertIntoInternalとupdateIntoInternalの共通部分
+// (「子を再帰処理した後にpをどう直すか」はInsertでもUpdateでも全く同じ)。
+func (bt *BTree) patchInternalAfterChildSplit(p *page.Page, childID uint32, upTableID uint32, upKey types.Value, newChildID uint32, txnID uint64) (uint32, types.Value, uint32, error) {
 	if newChildID == 0 {
 		bt.releasePage(p)
 		return 0, nil, 0, nil
@@ -274,6 +298,54 @@ func (bt *BTree) insertIntoInternal(p *page.Page, tableID uint32, key types.Valu
 		return 0, nil, 0, nil
 	}
 	return bt.splitInternal(p, upTableID, upKey, childID, txnID)
+}
+
+// updateRecursive はpageIDのサブツリーの中からtableID・keyの行を探してnewRowに
+// 置き換える。insertRecursiveと同じ形の再帰構造で、葉に着くまで内部ノードを辿る。
+func (bt *BTree) updateRecursive(pageID uint32, tableID uint32, key types.Value, newRow types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
+	p, err := bt.bp.FetchPage(pageID)
+	if err != nil {
+		return 0, nil, 0, err
+	}
+	if p.Type() == page.TypeLeaf {
+		return bt.updateLeaf(p, tableID, key, newRow, schema, txnID)
+	}
+	return bt.updateIntoInternal(p, tableID, key, newRow, schema, txnID)
+}
+
+// updateIntoInternal はpの内部ノードを辿ってchildを再帰的に更新する。
+// 子の再帰処理後にpを直す部分はinsertIntoInternalと共通(patchInternalAfterChildSplit)。
+func (bt *BTree) updateIntoInternal(p *page.Page, tableID uint32, key types.Value, newRow types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
+	childID := bt.findChildPageID(p, tableID, key)
+	upTableID, upKey, newChildID, err := bt.updateRecursive(childID, tableID, key, newRow, schema, txnID)
+	if err != nil {
+		bt.releasePage(p)
+		return 0, nil, 0, err
+	}
+	return bt.patchInternalAfterChildSplit(p, childID, upTableID, upKey, newChildID, txnID)
+}
+
+// updateLeaf はpの葉ページの中でtableID・keyに対応するセルをnewRowで置き換える。
+// 古いセルを消してから新しいセルを同じページに挿し直せれば1回のページ変更(OpUpdate)
+// で済む。newRowが育ってそれでも収まらない場合だけ、Insertと同じsplitLeafに委ねる
+// (splitLeafはp上の残りのセル+新セルをまとめて再配置するので、事前にDeleteCell
+// しておけば古い値が二重に残ることはない)。
+func (bt *BTree) updateLeaf(p *page.Page, tableID uint32, key types.Value, newRow types.Row, schema *types.Schema, txnID uint64) (uint32, types.Value, uint32, error) {
+	idx, found := bt.searchInLeaf(p, tableID, key)
+	if !found {
+		bt.releasePage(p)
+		return 0, nil, 0, fmt.Errorf("key not found")
+	}
+	p.DeleteCell(idx)
+
+	newCell := encodeLeafCell(tableID, key, newRow, schema)
+	if p.InsertCellAt(bt.findInsertPos(p, tableID, key), newCell) {
+		if err := bt.finishPage(p, txnID, wal.OpUpdate); err != nil {
+			return 0, nil, 0, err
+		}
+		return 0, nil, 0, nil
+	}
+	return bt.splitLeaf(p, tableID, key, newRow, schema, txnID)
 }
 
 // splitLeaf はpを引き取り、分割してrightPageを新設する。p・rightPage両方のアンピンをここで行う。

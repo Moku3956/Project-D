@@ -67,16 +67,13 @@ func (r *BTreeRepository) Insert(table string, row types.Row, txnID uint64) erro
 	return r.bt.Insert(schema.TableID, pk, row, schema, txnID)
 }
 
-// Update は既存レコードをDeleteしてから新しいレコードをInsertする。B+TreeにUpdateがないため。
+// Update は既存レコードをB+Tree.Updateで置き換える。
 func (r *BTreeRepository) Update(table string, pk types.Value, row types.Row, txnID uint64) error {
 	schema, err := r.schema(table)
 	if err != nil {
 		return err
 	}
-	if err := r.bt.Delete(schema.TableID, pk, txnID); err != nil {
-		return err
-	}
-	return r.bt.Insert(schema.TableID, pk, row, schema, txnID)
+	return r.bt.Update(schema.TableID, pk, row, schema, txnID)
 }
 
 // Delete はPKでB+Treeからレコードを削除する。

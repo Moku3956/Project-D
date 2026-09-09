@@ -103,3 +103,51 @@ func TestInsertLogsRedoData(t *testing.T) {
 		t.Error("Insertを表すRedoログ(ページ全体のRedoData)が見つからない")
 	}
 }
+
+// Updateが1回のページ変更(OpUpdateレコード1件)で済み、素朴にDelete+Insertを
+// 呼んだ場合のようにOpDelete+OpInsertの2件にならないことを確認する。
+func TestUpdateLogsSingleOpUpdateRecord(t *testing.T) {
+	_, wm, _, bt := walRedoSetup(t)
+	schema := testSchema()
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Insertとは別のTxnIDにして、Updateが生成したレコードだけを数えられるようにする。
+	const updateTxnID = uint64(2)
+	newRow := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Bob"}}}
+	if err := bt.Update(testTableID, types.IntValue{V: 1}, newRow, schema, updateTxnID); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if err := wm.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	records, err := wm.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+
+	var updateCount, deleteCount, insertCount int
+	for _, r := range records {
+		if r.TxnID != updateTxnID {
+			continue
+		}
+		switch r.Op {
+		case wal.OpUpdate:
+			updateCount++
+		case wal.OpDelete:
+			deleteCount++
+		case wal.OpInsert:
+			insertCount++
+		}
+	}
+	if updateCount != 1 {
+		t.Errorf("OpUpdateレコード数 = %d, want 1", updateCount)
+	}
+	if deleteCount != 0 || insertCount != 0 {
+		t.Errorf("UpdateがOpDelete/OpInsertを生成した(delete=%d, insert=%d), want 0/0", deleteCount, insertCount)
+	}
+}
