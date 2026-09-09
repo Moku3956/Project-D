@@ -11,7 +11,7 @@ import (
 	"github.com/Moku3956/Project-D/types"
 )
 
-// walRedoSetup はWAL・バッファプール・BTreeを一時ディレクトリ上に構築する。
+// walRedoSetup builds a WAL manager, buffer pool, and BTree in a temporary directory.
 func walRedoSetup(t *testing.T) (*page.DiskManager, *wal.WALManager, *buffer.BufferPool, *BTree) {
 	t.Helper()
 	dir := t.TempDir()
@@ -33,7 +33,8 @@ func walRedoSetup(t *testing.T) (*page.DiskManager, *wal.WALManager, *buffer.Buf
 	return dm, wm, bp, bt
 }
 
-// Insertした直後は、FlushAllを呼ぶまでディスク上のページが変化しないこと(No-Steal)を確認する。
+// Checks that a dirty page from an Insert is not written to disk until
+// FlushAll is called (the No-Steal policy).
 func TestInsertNoStealBeforeFlush(t *testing.T) {
 	dm, _, bp, bt := walRedoSetup(t)
 	schema := testSchema()
@@ -50,16 +51,16 @@ func TestInsertNoStealBeforeFlush(t *testing.T) {
 		t.Fatalf("Insert: %v", err)
 	}
 
-	// FlushAllを呼ぶ前は、ディスク上のページはInsert前のバイト列のまま。
+	// Before FlushAll, the on-disk page should still be the pre-Insert bytes.
 	afterInsert, err := dm.ReadPage(rootID)
 	if err != nil {
 		t.Fatalf("ReadPage: %v", err)
 	}
 	if !bytes.Equal(beforeBytes, afterInsert.Bytes()) {
-		t.Error("FlushAll前にディスク上のページが変化した(No-Stealに違反している)")
+		t.Error("on-disk page changed before FlushAll (violates No-Steal)")
 	}
 
-	// FlushAllを呼んで初めてディスクに反映される。
+	// Only after FlushAll should the change land on disk.
 	if err := bp.FlushAll(map[uint64]bool{testTxnID: true}); err != nil {
 		t.Fatalf("FlushAll: %v", err)
 	}
@@ -68,11 +69,11 @@ func TestInsertNoStealBeforeFlush(t *testing.T) {
 		t.Fatalf("ReadPage: %v", err)
 	}
 	if bytes.Equal(beforeBytes, afterFlush.Bytes()) {
-		t.Error("FlushAll後もディスク上のページがInsert前のまま変化していない")
+		t.Error("on-disk page is still unchanged even after FlushAll")
 	}
 }
 
-// Insertが実際にRedoData入りのWALレコードとして記録されることを確認する。
+// Checks that an Insert appends a WAL record carrying the full page bytes as RedoData.
 func TestInsertLogsRedoData(t *testing.T) {
 	_, wm, _, bt := walRedoSetup(t)
 	schema := testSchema()
@@ -82,7 +83,7 @@ func TestInsertLogsRedoData(t *testing.T) {
 		t.Fatalf("Insert: %v", err)
 	}
 
-	// AppendはバッファにためるだけなのでFlushしてからファイルを読む。
+	// Append only buffers in memory, so flush before reading the file back.
 	if err := wm.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
@@ -100,7 +101,7 @@ func TestInsertLogsRedoData(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("Insertを表すRedoログ(ページ全体のRedoData)が見つからない")
+		t.Error("no redo log (full-page RedoData) found for the Insert")
 	}
 }
 

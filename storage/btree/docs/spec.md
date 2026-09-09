@@ -1,118 +1,114 @@
-# B+Tree 仕様
+# B+Tree Specification
 
-## 概要
+## Overview
 
-PRIMARY KEYをキーとするB+Tree。全データは葉ノードに格納し、内部ノードはキーと子ポインタのみを持つ。
+A B+Tree keyed on the PRIMARY KEY. All data is stored in leaf nodes; internal nodes hold only keys and child pointers.
 
 ---
 
-## ノード構造
+## Node structure
 
-### 内部ノード
+### Internal nodes
 
-キーと子ページIDのポインタを持つ。N個のキーに対してN+1個の子ポインタを持つ（左子規約）。
+Holds keys and pointers to child page IDs. For N keys there are N+1 child pointers (the left-child convention).
 
 ```
 [Child0]  Key1  [Child1]  Key2  [Child2]
 ```
 
-- `Child_(i-1)` は `Key_i` **未満**を担当する（Key_iの左隣の子）
-- 一番大きいキー以上は `Child_N` が担当する。これはどのキーとも組めないため、
-  ページヘッダの `RightmostChild`（storage/page spec参照）に別置きする
+- `Child_(i-1)` is responsible for values **less than** `Key_i` (the child to the left of Key_i)
+- Values greater than or equal to the largest key are handled by `Child_N`. Since this child isn't
+  paired with any key, it's stored separately in the page header's `RightmostChild` (see storage/page spec)
 
-セルは `(Key_i, Child_(i-1))` の組で `[複合キー][子ページID 4byte]` として格納する（cell.go の `encodeInternalCell`）。
-探索は次のルールに従う（`findChildPageID`）。
+Cells are stored as the pair `(Key_i, Child_(i-1))`, i.e. `[composite key][child page ID, 4 bytes]` (see `encodeInternalCell` in cell.go).
+Lookup follows this rule (`findChildPageID`):
 
 ```
-key < Key1        → Child0（cell0の子）
-Key1 <= key < Key2 → Child1（cell1の子）
+key < Key1        → Child0 (cell0's child)
+Key1 <= key < Key2 → Child1 (cell1's child)
 ...
 KeyN <= key        → RightmostChild
 ```
 
-### 葉ノード
+### Leaf nodes
 
-キーと値（レコード）をインラインで保持する。葉ノード同士はリンクリストで接続する（範囲スキャン用）。
+Holds keys and values (records) inline. Leaf nodes are connected to each other via a linked list (for range scans).
 
 ```
 [Key0: Record0][Key1: Record1]...
 ```
 
-次の葉ページIDは、内部ノードでは子ポインタとして使う `RightmostChild`（ページヘッダ20〜24byte、storage/page spec参照）を
-葉ノードでは転用して格納する（`nextLeafID` / `setNextLeafID`）。
+The next leaf page ID reuses the same header field that internal nodes use as a child pointer,
+`RightmostChild` (page header bytes 20-24, see storage/page spec); on leaf pages this field is
+repurposed to store it (`nextLeafID` / `setNextLeafID`).
 
 ---
 
-## 操作
+## Operations
 
-### 検索
+### Search
 
-ルートページIDはファイルヘッダから取得する。ルートから内部ノードを辿り、対象の葉ノードに到達してレコードを返す。
+The root page ID is obtained from the file header. Starting from the root, internal nodes are traversed until reaching the target leaf node, which returns the record.
 
-### 挿入
+### Insert
 
-葉ノードに空きがあればそのまま挿入する。葉ノードが満杯の場合はページ分割を行い、親の内部ノードを更新する。ルートが分割された場合は新しいルートを作成し、ファイルヘッダのルートページIDを更新する。
+If the leaf node has room, the record is inserted directly. If the leaf node is full, the page is split and the parent internal node is updated. If the root itself splits, a new root is created and the root page ID in the file header is updated.
 
-### 更新
+### Delete
 
-PRIMARY KEYは変更されない前提のため、対象の葉ノードは更新前の行と同じになる。葉ノード内で対象セルを削除してから新しい内容のセルを挿し直し、それが同じページに収まればページ変更は1回で済む(WALにもOpUpdateレコードが1件だけ記録される)。収まらない場合(値が大きく育った場合)は挿入と同じページ分割処理に委ねる。
+Removes the target record from the leaf node. Page merging is omitted from the initial implementation for simplicity.
 
-Delete+Insertの組み合わせでも結果的に同じ内容にはできるが、その場合は常にOpDelete・OpInsertの2レコードがWALに残ってしまう。更新であることが分かっている場合は本操作を使うことで、この余分なレコードを避けられる。
+### Range scan
 
-### 削除
-
-葉ノードから対象レコードを削除する。ページのマージはシンプルさのため初期実装では省略する。
-
-### 範囲スキャン
-
-葉ノードのリンクリストを辿ることで効率的な範囲スキャンを実現する。
+Efficient range scans are achieved by walking the leaf nodes' linked list.
 
 ---
 
 ## PRIMARY KEY
 
-B+TreeのキーはPRIMARY KEYカラムの値を使用する。キーの比較はカラムの型に応じて行う。
+The B+Tree's key is the value of the PRIMARY KEY column. Key comparison is performed according to the column's type.
 
 ---
 
-## キーフォーマット（複合キー）
+## Key format (composite key)
 
-1つのB+Treeファイルに複数テーブルのデータを格納するため、キーは以下の複合フォーマットを使用する。
+To store multiple tables' data in a single B+Tree file, keys use the following composite format.
 
 ```
 [tableID: 4bytes BE][type_tag: 1byte][pk_bytes]
 ```
 
-- `tableID`: テーブルを識別するID（カタログが自動採番）
-- `type_tag`: PKの型を示すタグ（`0x01`=INT, `0x02`=VARCHAR）
-- `pk_bytes`: PKの値バイト列（INTは8byte BE、VARCHARは2byte長さ + UTF-8バイト列）
+- `tableID`: an ID identifying the table (auto-assigned by the catalog)
+- `type_tag`: a tag indicating the PK's type (`0x01`=INT, `0x02`=VARCHAR)
+- `pk_bytes`: the PK's value bytes (8 bytes BE for INT; a 2-byte length + UTF-8 bytes for VARCHAR)
 
-型タグを埋め込んだ自己記述型のため、デコード時に外部からの型情報が不要。
+Because the type tag is embedded, the format is self-describing, so no external type information is needed when decoding.
 
-ソート順はtableIDを先に比較し、同じtableID内ではpk値で比較する。これにより同じキー空間に複数テーブルのレコードが共存でき、ScanはtableIDのプレフィックス範囲スキャンで実現できる。
+Sort order compares tableID first, then the PK value within the same tableID. This lets multiple tables' records coexist in the same key space, and Scan can be implemented as a prefix range scan on tableID.
 
 ---
 
-## セルの入れ子構造（具体例）
+## Nested cell structure (a concrete example)
 
-`(id INT PRIMARY KEY, name VARCHAR(50))` のテーブルに `(id=56, name='Bob')` を挿入する場合、
-ページ・スロット・セル・複合キーは次のように入れ子になる。
+When inserting `(id=56, name='Bob')` into a table `(id INT PRIMARY KEY, name VARCHAR(50))`,
+the page, slot, cell, and composite key nest as follows.
 
 ![alt text](image.png)
 
 ```
-ページ（4096byte）
-├─ ヘッダ（24byte）
-├─ スロット配列
-│   └─ 1スロット（4byte）= [開始オフセット 2byte][長さ 2byte]
-│        └─ この2つの値でセルデータ内の1セルを指す（隣接するスロットの位置には依存しない）
-└─ セルデータ
-    └─ 1セル（葉ノード, 31byte）
-        ├─ 複合キー（13byte）  ← tableID(4) + type_tag(1) + id値(8)
-        ├─ NULLビットマップ（1byte）
-        ├─ オフセット配列（4byte）  ← カラム数(2) × 2byte
-        └─ カラムデータ（13byte）  ← id(8) + name(2+3='Bob')
+Page (4096 bytes)
+├─ Header (24 bytes)
+├─ Slot array
+│   └─ 1 slot (4 bytes) = [start offset 2 bytes][length 2 bytes]
+│        └─ These two values point to one cell within the cell data (independent of adjacent slots' positions)
+└─ Cell data
+    └─ 1 cell (leaf node, 31 bytes)
+        ├─ Composite key (13 bytes)  ← tableID(4) + type_tag(1) + id value(8)
+        ├─ NULL bitmap (1 byte)
+        ├─ Offset array (4 bytes)  ← number of columns(2) × 2 bytes
+        └─ Column data (13 bytes)  ← id(8) + name(2+3='Bob')
 ```
 
-複合キーの13byteは `[tableID=1][type_tag=0x01][id=56]` の内訳。内部ノードのセルなら、
-カラムデータの代わりに `[子ページID 4byte]` が続く（セルの先頭が複合キーなのは葉・内部ノードで共通）。
+The composite key's 13 bytes break down as `[tableID=1][type_tag=0x01][id=56]`. For an internal
+node's cell, `[child page ID, 4 bytes]` follows instead of column data (a cell starting with a
+composite key is common to both leaf and internal nodes).

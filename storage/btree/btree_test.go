@@ -54,8 +54,9 @@ func setupBTree(t *testing.T) (*BTree, func()) {
 	}
 }
 
-// ---- 正常系 ----
+// ---- Happy path ----
 
+// TestInsertAndSearch inserts a row and checks that Search returns it.
 func TestInsertAndSearch(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -80,6 +81,7 @@ func TestInsertAndSearch(t *testing.T) {
 	}
 }
 
+// TestSearchNotFound checks that searching for a missing key returns nil, not an error.
 func TestSearchNotFound(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -94,6 +96,7 @@ func TestSearchNotFound(t *testing.T) {
 	}
 }
 
+// TestInsertMultipleAndScan inserts several rows and checks that Scan returns all of them.
 func TestInsertMultipleAndScan(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -115,6 +118,7 @@ func TestInsertMultipleAndScan(t *testing.T) {
 	}
 }
 
+// TestDelete deletes a row and checks that Search no longer finds it.
 func TestDelete(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -216,6 +220,8 @@ func TestUpdateAcrossSplitTree(t *testing.T) {
 	}
 }
 
+// TestMultipleTablesIsolated checks that rows from different tables sharing one
+// physical tree don't leak into each other's Search/Scan results.
 func TestMultipleTablesIsolated(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -272,15 +278,17 @@ func TestMultipleTablesIsolated(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(rows1) != 1 {
-		t.Errorf("table1 Scan件数 = %d, want 1", len(rows1))
+		t.Errorf("table1 Scan count = %d, want 1", len(rows1))
 	}
 	if len(rows2) != 1 {
-		t.Errorf("table2 Scan件数 = %d, want 1", len(rows2))
+		t.Errorf("table2 Scan count = %d, want 1", len(rows2))
 	}
 }
 
-// ---- 異常系 ----
+// ---- Error cases ----
 
+// TestInsertDuplicateKey checks that inserting the same key twice does not error
+// and both rows persist (uniqueness is not enforced yet).
 func TestInsertDuplicateKey(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -301,10 +309,12 @@ func TestInsertDuplicateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(rows) != 2 {
-		t.Errorf("重複挿入後の件数 = %d, want 2", len(rows))
+		t.Errorf("count after duplicate insert = %d, want 2", len(rows))
 	}
 }
 
+// TestDeleteThenReinsert checks that re-inserting a key after deleting it succeeds
+// and returns the new value.
 func TestDeleteThenReinsert(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -328,13 +338,15 @@ func TestDeleteThenReinsert(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got == nil {
-		t.Fatal("再挿入後にnilが返った")
+		t.Fatal("got nil after re-insert")
 	}
 	if got.Values[1].(types.StringValue).V != "Bob" {
 		t.Errorf("name = %v, want Bob", got.Values[1])
 	}
 }
 
+// TestSplitAndScanOrder inserts enough rows to trigger a page split and checks
+// that Scan still returns every row in ascending PK order.
 func TestSplitAndScanOrder(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
@@ -353,7 +365,7 @@ func TestSplitAndScanOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(rows) != n {
-		t.Errorf("件数 = %d, want %d", len(rows), n)
+		t.Errorf("count = %d, want %d", len(rows), n)
 	}
 	for i, row := range rows {
 		id := row.Values[0].(types.IntValue).V
@@ -364,12 +376,13 @@ func TestSplitAndScanOrder(t *testing.T) {
 	}
 }
 
+// TestDeleteNotFound checks that deleting a missing key returns an error.
 func TestDeleteNotFound(t *testing.T) {
 	bt, cleanup := setupBTree(t)
 	defer cleanup()
 
 	err := bt.Delete(testTableID, types.IntValue{V: 99}, testTxnID)
 	if err == nil {
-		t.Error("存在しないキーの削除でエラーが返らなかった")
+		t.Error("deleting a missing key did not return an error")
 	}
 }

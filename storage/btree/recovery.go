@@ -5,7 +5,7 @@ import (
 	"github.com/Moku3956/Project-D/storage/wal"
 )
 
-// Recover はWALを読み、コミット済みトランザクションのページ変更をディスクへ再適用する(Redo)。
+// Recover reads the WAL and reapplies committed transactions' page changes to disk (Redo).
 func Recover(disk *page.DiskManager, wm *wal.WALManager) error {
 	records, err := wm.ReadAll()
 	if err != nil {
@@ -19,7 +19,8 @@ func Recover(disk *page.DiskManager, wm *wal.WALManager) error {
 		}
 	}
 
-	// RedoDataはページ全体のバイト列なので、最新のページ(LSNが最大)のみでOK
+	// RedoData is the whole page's bytes, so only the latest record per page
+	// (highest LSN) is needed.
 	latest := make(map[uint32]*wal.LogRecord)
 	for _, r := range records {
 		if r.Op != wal.OpInsert && r.Op != wal.OpUpdate && r.Op != wal.OpDelete {
