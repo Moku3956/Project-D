@@ -60,7 +60,7 @@ const strings = {
   walCardTitle: { ja: 'WAL', en: 'WAL' },
   walColumnLabel: { ja: 'WAL', en: 'WAL' },
   walEmpty: { ja: 'まだWALレコードがありません', en: 'No WAL records yet' },
-  walTxnLabel: { ja: 'txn {id}', en: 'txn {id}' },
+  walTxnLabel: { ja: 'トランザクション {id}', en: 'Transaction {id}' },
   walPageLabel: { ja: 'ページ{id}', en: 'page {id}' },
   walCommitLabel: { ja: '✓ COMMIT(処理完了)', en: '✓ COMMIT (done)' },
   walAbortLabel: { ja: '✕ ABORT(処理中止)', en: '✕ ABORT (cancelled)' },
