@@ -64,6 +64,7 @@ const strings = {
   walPageLabel: { ja: 'ページ{id}', en: 'page {id}' },
   walCommitLabel: { ja: '✓ COMMIT(処理完了)', en: '✓ COMMIT (done)' },
   walAbortLabel: { ja: '✕ ABORT(処理中止)', en: '✕ ABORT (cancelled)' },
+  walExpandToggle: { ja: '中身を見る', en: 'View content' },
 
   btreeExplainerTitle: { ja: '📚 B+Treeとは？', en: "📚 What's a B+Tree?" },
   btreeExplainerBody: {
