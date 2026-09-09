@@ -30,6 +30,77 @@ func TestDumpTreeEmptyRoot(t *testing.T) {
 	}
 }
 
+// DecodePageBytesはfinishPageが記録するRedoData(ページ全体のバイト列)をその
+// まま渡された想定で、Insert後の葉ページから正しく行をデコードできることを
+// 確認する。
+func TestDecodePageBytesDecodesLeafRows(t *testing.T) {
+	_, wm, _, bt := walRedoSetup(t)
+	schema := testSchema()
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+	if err := wm.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	records, err := wm.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(records) == 0 {
+		t.Fatal("no WAL records found")
+	}
+	last := records[len(records)-1]
+
+	rows, rowTables := DecodePageBytes(last.RedoData, map[uint32]*types.Schema{testTableID: schema})
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if name := rows[0].Values[1].(types.StringValue).V; name != "Alice" {
+		t.Errorf("name = %q, want Alice", name)
+	}
+	if rowTables[0] != schema.TableName {
+		t.Errorf("rowTables[0] = %q, want %q", rowTables[0], schema.TableName)
+	}
+}
+
+// 内部ノードのページを渡した場合はnilを返す(WAL可視化では葉ページの中身だけに
+// 関心があるため)。
+func TestDecodePageBytesInternalPageReturnsNil(t *testing.T) {
+	bt, cleanup := setupBTree(t)
+	defer cleanup()
+	schema := testSchema()
+
+	const n = 200
+	for i := int64(1); i <= n; i++ {
+		row := types.Row{Values: []types.Value{types.IntValue{V: i}, types.StringValue{V: "user"}}}
+		if err := bt.Insert(testTableID, types.IntValue{V: i}, row, schema, testTxnID); err != nil {
+			t.Fatalf("Insert(%d): %v", i, err)
+		}
+	}
+
+	snap, err := bt.DumpTree(map[uint32]*types.Schema{testTableID: schema})
+	if err != nil {
+		t.Fatalf("DumpTree: %v", err)
+	}
+	root := snap.Pages[snap.RootPageID]
+	if root.IsLeaf {
+		t.Fatalf("expected root to be an internal node after %d inserts", n)
+	}
+
+	p, err := bt.bp.FetchPage(snap.RootPageID)
+	if err != nil {
+		t.Fatalf("FetchPage: %v", err)
+	}
+	defer bt.releasePage(p)
+
+	rows, rowTables := DecodePageBytes(p.Bytes(), map[uint32]*types.Schema{testTableID: schema})
+	if rows != nil || rowTables != nil {
+		t.Errorf("expected nil rows/rowTables for an internal page, got %v / %v", rows, rowTables)
+	}
+}
+
 func TestDumpTreeReflectsUncommittedInsert(t *testing.T) {
 	// No-Forceでは、コミット後でもディスクにはまだ書かれず、バッファプール上の
 	// dirtyページだけが最新の場合がある。DumpTreeがbt.bp経由で読むこと(disk直読みで

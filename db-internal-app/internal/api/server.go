@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Moku3956/Project-D/db-internal-app/internal/dbsession"
 	"github.com/Moku3956/Project-D/storage/btree"
 	"github.com/Moku3956/Project-D/types"
 )
@@ -46,6 +47,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 type execRequest struct {
 	SQL   string `json:"sql"`
 	Table string `json:"table,omitempty"`
+	Wal   bool   `json:"wal,omitempty"`
 }
 
 type execResponse struct {
@@ -53,6 +55,7 @@ type execResponse struct {
 	Rows         [][]any           `json:"rows,omitempty"`
 	AffectedRows int               `json:"affectedRows"`
 	Tree         *treeSnapshotJSON `json:"tree,omitempty"`
+	Wal          []walRecordJSON   `json:"wal,omitempty"`
 	Error        string            `json:"error,omitempty"`
 }
 
@@ -107,6 +110,18 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resp.Tree = marshalTreeSnapshot(snap)
+	}
+
+	if req.Wal {
+		records, err := sess.WalRecords()
+		if err != nil {
+			writeJSON(w, http.StatusOK, execResponse{
+				Columns: resp.Columns, Rows: resp.Rows, AffectedRows: resp.AffectedRows, Tree: resp.Tree,
+				Error: "query succeeded but WalRecords failed: " + err.Error(),
+			})
+			return
+		}
+		resp.Wal = marshalWalRecords(records)
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -190,6 +205,31 @@ type pageSnapshotJSON struct {
 	Rows           [][]any  `json:"rows,omitempty"`
 	RowTables      []string `json:"rowTables,omitempty"`
 	NextLeafID     uint32   `json:"nextLeafId,omitempty"`
+}
+
+type walRecordJSON struct {
+	LSN        uint64 `json:"lsn"`
+	TxnID      uint64 `json:"txnId"`
+	PageID     uint32 `json:"pageId"`
+	Op         string `json:"op"`
+	Table      string `json:"table,omitempty"`
+	ChangeKind string `json:"changeKind,omitempty"`
+	Row        []any  `json:"row,omitempty"`
+}
+
+func marshalWalRecords(records []dbsession.WalRecord) []walRecordJSON {
+	out := make([]walRecordJSON, len(records))
+	for i, r := range records {
+		rj := walRecordJSON{
+			LSN: r.LSN, TxnID: r.TxnID, PageID: r.PageID, Op: r.Op,
+			Table: r.Table, ChangeKind: r.ChangeKind,
+		}
+		if r.Changed != nil {
+			rj.Row = marshalRows([]types.Row{*r.Changed})[0]
+		}
+		out[i] = rj
+	}
+	return out
 }
 
 func marshalTreeSnapshot(snap *btree.TreeSnapshot) *treeSnapshotJSON {

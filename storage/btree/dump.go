@@ -71,20 +71,7 @@ func (bt *BTree) dumpPage(pageID uint32, schemas map[uint32]*types.Schema, snaps
 	ps := PageSnapshot{PageID: pageID, IsLeaf: p.Type() == page.TypeLeaf}
 
 	if ps.IsLeaf {
-		rows := make([]types.Row, 0, n)
-		rowTables := make([]string, 0, n)
-		for i := 0; i < n; i++ {
-			cell := p.CellAt(i)
-			schema, ok := schemas[cellTableID(cell)]
-			if !ok {
-				continue
-			}
-			_, _, row := decodeLeafCell(cell, schema)
-			rows = append(rows, row)
-			rowTables = append(rowTables, schema.TableName)
-		}
-		ps.Rows = rows
-		ps.RowTables = rowTables
+		ps.Rows, ps.RowTables = decodeLeafRows(p, schemas)
 		ps.NextLeafID = nextLeafID(p)
 		snapshot.Pages[pageID] = ps
 		return nil
@@ -114,6 +101,40 @@ func (bt *BTree) dumpPage(pageID uint32, schemas map[uint32]*types.Schema, snaps
 		}
 	}
 	return nil
+}
+
+// decodeLeafRows は葉ページpのセルのうち、schemasに含まれるtableIDのものだけを
+// デコードして返す(dropページに他テーブル・削除済みテーブルのセルが残っている
+// ことがあるため)。dumpPageとDecodePageBytesの共通処理。
+func decodeLeafRows(p *page.Page, schemas map[uint32]*types.Schema) (rows []types.Row, rowTables []string) {
+	n := int(p.CellCount())
+	rows = make([]types.Row, 0, n)
+	rowTables = make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		cell := p.CellAt(i)
+		schema, ok := schemas[cellTableID(cell)]
+		if !ok {
+			continue
+		}
+		_, _, row := decodeLeafCell(cell, schema)
+		rows = append(rows, row)
+		rowTables = append(rowTables, schema.TableName)
+	}
+	return rows, rowTables
+}
+
+// DecodePageBytes は1ページ分の生バイト列(WALレコードのRedoDataは常にページ
+// 全体のスナップショットなので、そのバイト列)を葉の行としてデコードする。
+// 既存のSearch/Insert/Delete/Scan(バッファプール経由)とは独立した読み取り専用
+// パスで、db-internal-appのWAL可視化(そのレコードの時点でページに何が
+// 入っていたか)のために追加した。内部ノードのページはnilを返す(WAL可視化では
+// 葉ページの中身だけに関心があるため)。
+func DecodePageBytes(data []byte, schemas map[uint32]*types.Schema) (rows []types.Row, rowTables []string) {
+	p := page.FromBytes(data)
+	if p.Type() != page.TypeLeaf {
+		return nil, nil
+	}
+	return decodeLeafRows(p, schemas)
 }
 
 func formatValue(v types.Value) string {

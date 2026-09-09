@@ -57,14 +57,13 @@ const strings = {
     ja: 'SQLを実行して、WALの可視化',
     en: 'Run SQL and visualize the WAL',
   },
-  walPlaceholderTitle: {
-    ja: '書き込み先行ログ(WAL)の可視化',
-    en: 'Write-Ahead Log (WAL) Visualization',
-  },
-  walPlaceholderDesc: {
-    ja: '準備中です。もうしばらくお待ちください。',
-    en: 'Coming soon.',
-  },
+  walCardTitle: { ja: 'WAL', en: 'WAL' },
+  walColumnLabel: { ja: 'WAL', en: 'WAL' },
+  walEmpty: { ja: 'まだWALレコードがありません', en: 'No WAL records yet' },
+  walTxnLabel: { ja: 'txn {id}', en: 'txn {id}' },
+  walPageLabel: { ja: 'ページ{id}', en: 'page {id}' },
+  walCommitLabel: { ja: '✓ COMMIT(処理完了)', en: '✓ COMMIT (done)' },
+  walAbortLabel: { ja: '✕ ABORT(処理中止)', en: '✕ ABORT (cancelled)' },
 
   btreeExplainerTitle: { ja: '📚 B+Treeとは？', en: "📚 What's a B+Tree?" },
   btreeExplainerBody: {
