@@ -10,7 +10,21 @@ export type ExecResponse = {
   rows?: unknown[][]
   affectedRows: number
   tree?: TreeSnapshot
+  wal?: WalRecord[]
   error?: string
+}
+
+/** Goの db-internal-app/internal/api.walRecordJSON と対応する。
+ * op: "INSERT" | "UPDATE" | "DELETE" | "COMMIT" | "ABORT"。
+ * changeKind: "added" | "removed" | "changed"、特定できなかった場合は未設定。 */
+export type WalRecord = {
+  lsn: number
+  txnId: number
+  pageId: number
+  op: string
+  table?: string
+  changeKind?: string
+  row?: unknown[]
 }
 
 /** Goの db-internal-app/internal/api.treeSnapshotJSON と対応する。 */

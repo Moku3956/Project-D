@@ -134,6 +134,42 @@ func TestExecEndpointReturnsFriendlyTimeoutError(t *testing.T) {
 	}
 }
 
+func TestExecEndpointReturnsWalRecordsWhenRequested(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"})
+	if res.Error != "" {
+		t.Fatalf("CREATE TABLE error: %s", res.Error)
+	}
+	if res.Wal != nil {
+		t.Error("Wal should be omitted when not requested")
+	}
+
+	res = postExec(t, client, srv.URL, execRequest{SQL: "INSERT INTO users VALUES (1, 'Alice')", Wal: true})
+	if res.Error != "" {
+		t.Fatalf("INSERT error: %s", res.Error)
+	}
+	if len(res.Wal) == 0 {
+		t.Fatal("expected Wal records to be populated when Wal is requested")
+	}
+
+	var insert *walRecordJSON
+	for i := range res.Wal {
+		if res.Wal[i].Op == "INSERT" {
+			insert = &res.Wal[i]
+			break
+		}
+	}
+	if insert == nil {
+		t.Fatal("no INSERT record in Wal response")
+	}
+	if insert.ChangeKind != "added" || insert.Row == nil {
+		t.Errorf("INSERT record: ChangeKind = %q, Row = %v, want added/non-nil", insert.ChangeKind, insert.Row)
+	}
+}
+
 func TestResetClearsSessionData(t *testing.T) {
 	srv := newTestServer(t)
 	jar := newCookieJar(t, srv.URL)

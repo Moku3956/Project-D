@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { execSql, listTables, resetSession } from './api'
 import { buildTemplate, type SqlMode } from './sqlTemplates'
 import { translate } from './i18n'
-import type { ExecResponse, TableInfo, TreeSnapshot } from './types'
+import type { ExecResponse, TableInfo, TreeSnapshot, WalRecord } from './types'
 
 const DEFAULT_TABLE = 'users'
 
@@ -39,6 +39,8 @@ type State = {
   /** 直前のスナップショットに存在しなかった行のPK(先頭カラム)集合。
    * 「新規に増えたKV」のハイライトに使う簡易diff(先頭カラムをPKとみなす)。 */
   newPKs: Set<unknown>
+  /** セッションのWALレコード一覧(LSN昇順)。WalCard用。B+Treeカードは使わない。 */
+  walRecords: WalRecord[]
   setSql: (sql: string) => void
   /** セッション開始時に自動で呼ぶ。デモ用テーブルを自分で作らせるのは
    * ユーザーにとって無駄な手順、というユーザー指示により、初回アクセス
@@ -164,10 +166,10 @@ function nextAutoTableName(tables: TableInfo[]): string {
  * ではない前提だが、既に存在する場合はcatalog.goの"table \"users\" already
  * exists"エラーが返るだけなので、それは無視して現在の木を取得し直す。 */
 async function ensureTable(): Promise<ExecResponse> {
-  const result = await execSql(INIT_SQL, DEFAULT_TABLE)
+  const result = await execSql(INIT_SQL, DEFAULT_TABLE, true)
   if (!result.error) return result
   if (!result.error.includes('already exists')) return result
-  return execSql(`SELECT * FROM ${DEFAULT_TABLE}`, DEFAULT_TABLE)
+  return execSql(`SELECT * FROM ${DEFAULT_TABLE}`, DEFAULT_TABLE, true)
 }
 
 export const useDbInternal = create<State>((set, get) => ({
@@ -179,6 +181,7 @@ export const useDbInternal = create<State>((set, get) => ({
   lastResult: null,
   tree: null,
   newPKs: new Set(),
+  walRecords: [],
   sqlMode: 'INSERT',
 
   setSql: (sql) => set({ sql }),
@@ -205,7 +208,7 @@ export const useDbInternal = create<State>((set, get) => ({
         return
       }
       const tables = await listTables()
-      set({ busy: false, lastResult: result, tree: result.tree ?? null, tables })
+      set({ busy: false, lastResult: result, tree: result.tree ?? null, walRecords: result.wal ?? [], tables })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
     }
@@ -215,7 +218,7 @@ export const useDbInternal = create<State>((set, get) => ({
     const { sql, currentTable, tree: prevTree } = get()
     set({ busy: true, error: null })
     try {
-      const result = await execSql(sql, currentTable)
+      const result = await execSql(sql, currentTable, true)
       if (result.error) {
         set({ busy: false, error: result.error })
         return
@@ -243,6 +246,7 @@ export const useDbInternal = create<State>((set, get) => ({
         lastResult: result,
         tree: nextTree,
         newPKs: diffNewPKs(prevTree, nextTree, currentTable),
+        walRecords: result.wal ?? [],
         tables,
       })
     } catch (e) {
@@ -275,6 +279,7 @@ export const useDbInternal = create<State>((set, get) => ({
             return execSql(
               `INSERT INTO ${currentTable} VALUES ('${id}', '${randomName()}')`,
               wantTree ? currentTable : undefined,
+              wantTree,
             )
           }),
         )
@@ -291,6 +296,7 @@ export const useDbInternal = create<State>((set, get) => ({
         lastResult: finalResult,
         tree: finalTree,
         newPKs: diffNewPKs(prevTree, finalTree, currentTable),
+        walRecords: finalResult?.wal ?? get().walRecords,
       })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
@@ -300,12 +306,18 @@ export const useDbInternal = create<State>((set, get) => ({
   switchTable: async (name) => {
     set({ busy: true, error: null, currentTable: name })
     try {
-      const result = await execSql(`SELECT * FROM ${name}`, name)
+      const result = await execSql(`SELECT * FROM ${name}`, name, true)
       if (result.error) {
         set({ busy: false, error: result.error, tree: null, newPKs: new Set() })
         return
       }
-      set({ busy: false, lastResult: result, tree: result.tree ?? null, newPKs: new Set() })
+      set({
+        busy: false,
+        lastResult: result,
+        tree: result.tree ?? null,
+        newPKs: new Set(),
+        walRecords: result.wal ?? [],
+      })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
     }
@@ -319,7 +331,7 @@ export const useDbInternal = create<State>((set, get) => ({
     const createSql = `CREATE TABLE ${name} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
     set({ busy: true, error: null })
     try {
-      const result = await execSql(createSql, name)
+      const result = await execSql(createSql, name, true)
       if (result.error) {
         set({ busy: false, error: result.error })
         return
@@ -332,6 +344,7 @@ export const useDbInternal = create<State>((set, get) => ({
         tables: newTables,
         currentTable: name,
         newPKs: new Set(),
+        walRecords: result.wal ?? [],
       })
     } catch (e) {
       set({ busy: false, error: e instanceof Error ? e.message : String(e) })
@@ -347,6 +360,7 @@ export const useDbInternal = create<State>((set, get) => ({
         lastResult: null,
         tree: null,
         newPKs: new Set(),
+        walRecords: [],
         sql: '',
         currentTable: DEFAULT_TABLE,
         tables: [],

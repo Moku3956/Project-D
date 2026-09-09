@@ -1,13 +1,14 @@
 import type { ExecResponse, TableInfo } from './types'
 
 /** SQLを1文実行する。Cookieセッションで状態が引き継がれる(credentials: 'include')。
- * tableを渡すと、レスポンスにそのテーブルのB+Treeスナップショットが含まれる。 */
-export async function execSql(sql: string, table?: string): Promise<ExecResponse> {
+ * tableを渡すと、レスポンスにそのテーブルのB+Treeスナップショットが含まれる。
+ * wal=trueを渡すと、レスポンスにこのセッションのWALレコード一覧が含まれる。 */
+export async function execSql(sql: string, table?: string, wal?: boolean): Promise<ExecResponse> {
   const res = await fetch('/api/exec', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ sql, table }),
+    body: JSON.stringify({ sql, table, wal }),
   })
   if (!res.ok) {
     throw new Error(`/api/exec failed: ${res.status}`)

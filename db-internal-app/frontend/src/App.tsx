@@ -24,9 +24,13 @@ function StoragePage() {
 
 function WalPage() {
   return (
-    <div className="pb-12">
-      <WalCard />
-    </div>
+    <>
+      <TableTabs />
+      <ControlsBar />
+      <div className="pb-12">
+        <WalCard />
+      </div>
+    </>
   )
 }
 
