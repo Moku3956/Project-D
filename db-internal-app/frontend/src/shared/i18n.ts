@@ -70,6 +70,7 @@ const strings = {
     ja: 'データベースが大量のデータでも素早く探せるようにするための木構造です。実際のデータは全て一番下の「葉」に入り、それより上の階層は「どこに何があるか」を示す索引の役割だけを持ちます。1つの箱(ページ)がいっぱいになると自動で分裂し、木はいつもバランスの取れた形を保ちます。だからデータが増えても、検索の速さはほとんど落ちません。',
     en: "A tree structure that lets a database find data quickly even as it grows huge. All the real data lives in the bottom-level \"leaves\" — every level above that is just an index pointing to where things are. When a box (page) fills up, it automatically splits, keeping the tree balanced. That's why search speed barely slows down as data grows.",
   },
+  btreeExplainerArticle: { ja: '📖 詳しい記事はこちら', en: '📖 Read the full article' },
 
   editorTitle: { ja: 'エディター (INSERT, DELETE, UPDATEを自由に書けます)', en: 'Editor (Write INSERT, DELETE, UPDATE freely)' },
   run: { ja: '実行 ▸', en: 'Run ▸' },

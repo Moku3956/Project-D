@@ -1,11 +1,16 @@
 import { useState } from 'react'
 import { useI18n } from './i18n'
 
+const ARTICLE_URL = {
+  ja: 'https://zenn.dev/mm_0911/articles/5d46e9e4608404',
+  en: 'https://zenn.dev/mm_0911/articles/5d46e9e4608404?locale=en',
+} as const
+
 /** B+Tree自体の簡単な説明。常時表示のカードだと画面を占有しすぎる
  * (ユーザー指摘)ため、小さいボタン+タップで開くモーダルにした。 */
 export function BTreeExplainer() {
   const [open, setOpen] = useState(false)
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   return (
     <>
@@ -37,6 +42,14 @@ export function BTreeExplainer() {
               </button>
             </div>
             <p className="pt-3 text-xs leading-relaxed text-muted">{t('btreeExplainerBody')}</p>
+            <a
+              href={ARTICLE_URL[locale]}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-3 inline-block text-xs font-bold text-accent hover:underline"
+            >
+              {t('btreeExplainerArticle')}
+            </a>
           </div>
         </div>
       )}
