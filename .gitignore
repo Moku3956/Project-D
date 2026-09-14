@@ -1,6 +1,7 @@
 # Go
 /cmd/dbms/dbms
 /cmd/server/server
+/db-internal-server
 *.test
 *.out
 

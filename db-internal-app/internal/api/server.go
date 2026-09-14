@@ -24,12 +24,18 @@ var queryTimeout = 10 * time.Second
 
 // Server はdb-internal-appのHTTP APIサーバー。
 type Server struct {
-	sessions *sessionStore
+	sessions      *sessionStore
+	secureCookies bool
 }
 
 // NewServer はdataDir配下にセッションごとのディレクトリを作るサーバーを返す。
-func NewServer(dataDir string) *Server {
-	return &Server{sessions: newSessionStore(dataDir)}
+// secureCookiesは、セッションCookieにSecure属性・SameSite=Noneを付けるかどうか。
+// フロントエンドとバックエンドが別オリジンにデプロイされる本番/ステージング環境
+// では、クロスオリジンのfetchでもCookieが送られるようtrueにする必要がある。
+// ローカル開発はHTTPのままなのでSecure Cookieが送信されず壊れてしまうため、
+// falseのままにする。
+func NewServer(dataDir string, secureCookies bool) *Server {
+	return &Server{sessions: newSessionStore(dataDir), secureCookies: secureCookies}
 }
 
 // RegisterRoutes はハンドラをmuxに登録する。
@@ -181,13 +187,20 @@ func (s *Server) sessionID(w http.ResponseWriter, r *http.Request) (string, erro
 	if err != nil {
 		return "", err
 	}
-	http.SetCookie(w, &http.Cookie{
+	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sid,
 		Path:     "/",
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
-	})
+	}
+	if s.secureCookies {
+		// SameSite=NoneはSecure属性とセットでないとブラウザに拒否されるため、
+		// 必ず一緒に設定する。
+		cookie.SameSite = http.SameSiteNoneMode
+		cookie.Secure = true
+	}
+	http.SetCookie(w, cookie)
 	return sid, nil
 }
 

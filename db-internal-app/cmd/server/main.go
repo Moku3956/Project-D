@@ -16,8 +16,12 @@ func main() {
 	// (sql-monsterの同種のバグ、project_issuesメモリ参照)。
 	dataDir := envOr("DATA_DIR", "db-internal-app/data")
 	addr := envOr("ADDR", ":8082")
+	// フロントエンドとバックエンドが別オリジンにデプロイされる本番/ステージング
+	// 環境ではSECURE_COOKIES=trueを設定する(セッションCookieがクロスオリジンの
+	// fetchでも送られるようになる)。ローカル開発はHTTPのままなので既定は無効。
+	secureCookies := envOr("SECURE_COOKIES", "false") == "true"
 
-	srv := api.NewServer(dataDir)
+	srv := api.NewServer(dataDir, secureCookies)
 	mux := http.NewServeMux()
 	srv.RegisterRoutes(mux)
 
