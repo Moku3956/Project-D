@@ -27,7 +27,7 @@ func newCookieJar(t *testing.T, rawURL string) *cookiejar.Jar {
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	dir := t.TempDir()
-	s := NewServer(dir)
+	s := NewServer(dir, false)
 	// sessionStoreのcleanupLoopが、後続のテストが書き換えるidleTimeout等の
 	// パッケージ変数を読み続けてリークするのを防ぐため、必ず止める。
 	t.Cleanup(s.sessions.stopCleanup)
@@ -54,6 +54,59 @@ func postExec(t *testing.T, client *http.Client, url string, req execRequest) ex
 		t.Fatalf("decode response: %v", err)
 	}
 	return out
+}
+
+// TestSecureCookiesAddsSameSiteNoneAndSecure は、secureCookies=trueのとき
+// セッションCookieがクロスオリジンのfetchでも送られるよう、SameSite=None +
+// Secureになることを確認する(フロントエンドとバックエンドが別オリジンに
+// デプロイされる本番/ステージング環境向けの設定)。
+func TestSecureCookiesAddsSameSiteNoneAndSecure(t *testing.T) {
+	dir := t.TempDir()
+	s := NewServer(dir, true)
+	t.Cleanup(s.sessions.stopCleanup)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exec", strings.NewReader(`{"sql":"SELECT 1"}`))
+	w := httptest.NewRecorder()
+	s.handleExec(w, req)
+
+	resp := w.Result()
+	cookies := resp.Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	c := cookies[0]
+	if c.SameSite != http.SameSiteNoneMode {
+		t.Errorf("SameSite = %v, want SameSiteNoneMode", c.SameSite)
+	}
+	if !c.Secure {
+		t.Error("expected Secure to be true")
+	}
+}
+
+// TestInsecureCookiesKeepsSameSiteLax は、secureCookies=false(デフォルト、
+// ローカル開発向け)のとき、従来通りSameSite=LaxでSecureなしのままであることを
+// 確認する。
+func TestInsecureCookiesKeepsSameSiteLax(t *testing.T) {
+	dir := t.TempDir()
+	s := NewServer(dir, false)
+	t.Cleanup(s.sessions.stopCleanup)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exec", strings.NewReader(`{"sql":"SELECT 1"}`))
+	w := httptest.NewRecorder()
+	s.handleExec(w, req)
+
+	resp := w.Result()
+	cookies := resp.Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	c := cookies[0]
+	if c.SameSite != http.SameSiteLaxMode {
+		t.Errorf("SameSite = %v, want SameSiteLaxMode", c.SameSite)
+	}
+	if c.Secure {
+		t.Error("expected Secure to be false")
+	}
 }
 
 func TestExecEndpointSetsSessionCookieAndPersists(t *testing.T) {
