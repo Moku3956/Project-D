@@ -33,7 +33,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Cleanup(s.sessions.stopCleanup)
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
-	srv := httptest.NewServer(WithCORS(mux))
+	srv := httptest.NewServer(WithCORS([]string{"http://localhost:5173"})(mux))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -60,6 +60,37 @@ func postExec(t *testing.T, client *http.Client, url string, req execRequest) ex
 // セッションCookieがクロスオリジンのfetchでも送られるよう、SameSite=None +
 // Secureになることを確認する(フロントエンドとバックエンドが別オリジンに
 // デプロイされる本番/ステージング環境向けの設定)。
+// TestWithCORSAllowsOnlyListedOrigins は、許可リストに含まれるOriginだけに
+// Access-Control-Allow-Originが付き、含まれないOriginには一切CORSヘッダーが
+// 付かない(ブラウザ側が読み取りを拒否する)ことを確認する。
+func TestWithCORSAllowsOnlyListedOrigins(t *testing.T) {
+	handler := WithCORS([]string{"https://allowed.example.com"})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("allowed origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Header.Set("Origin", "https://allowed.example.com")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if got := w.Result().Header.Get("Access-Control-Allow-Origin"); got != "https://allowed.example.com" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want https://allowed.example.com", got)
+		}
+	})
+
+	t.Run("disallowed origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Header.Set("Origin", "https://evil.example.com")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if got := w.Result().Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want empty (not allowed)", got)
+		}
+	})
+}
+
 func TestSecureCookiesAddsSameSiteNoneAndSecure(t *testing.T) {
 	dir := t.TempDir()
 	s := NewServer(dir, true)
