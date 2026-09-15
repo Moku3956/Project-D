@@ -10,6 +10,22 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // 本番ドメイン以外(ローカル開発・ステージング)ではGA4を発火させない。
+      if (location.hostname === "mokudb-visualization.com") {
+        var gaScript = document.createElement("script");
+        gaScript.async = true;
+        gaScript.src = "https://www.googletagmanager.com/gtag/js?id=G-55R35JWHQ0";
+        document.head.appendChild(gaScript);
+
+        window.dataLayer = window.dataLayer || [];
+        function gtag() {
+          dataLayer.push(arguments);
+        }
+        gtag("js", new Date());
+        gtag("config", "G-55R35JWHQ0");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
