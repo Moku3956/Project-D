@@ -1,0 +1,112 @@
+name: cd
+
+on:
+  push:
+    branches:
+      - stage
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 環境変数を決定
+        id: env
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"
+            echo "role_arn=arn:aws:iam::660941537209:role/mokudb-deploy-prod-role" >> "$GITHUB_OUTPUT"
+            echo "artifacts_bucket=mokudb-artifacts-prod" >> "$GITHUB_OUTPUT"
+            echo "frontend_bucket=mokudb-frontend-prod" >> "$GITHUB_OUTPUT"
+            echo "cloudfront_id=E3AOJPFBE27O7H" >> "$GITHUB_OUTPUT"
+            echo "build_mode=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"
+            echo "role_arn=arn:aws:iam::660941537209:role/mokudb-deploy-staging-role" >> "$GITHUB_OUTPUT"
+            echo "artifacts_bucket=mokudb-artifacts-stg" >> "$GITHUB_OUTPUT"
+            echo "frontend_bucket=mokudb-frontend-stg" >> "$GITHUB_OUTPUT"
+            echo "cloudfront_id=ELUS5ZECRSMP4" >> "$GITHUB_OUTPUT"
+            echo "build_mode=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.env.outputs.role_arn }}
+          aws-region: ap-northeast-3
+
+      # --- バックエンド ---
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: バックエンドをビルド
+        run: GOOS=linux GOARCH=amd64 go build -o db-internal-server ./db-internal-app/cmd/server
+
+      - name: バイナリをS3にアップロード
+        run: aws s3 cp db-internal-server s3://${{ steps.env.outputs.artifacts_bucket }}/server
+
+      - name: EC2上でバイナリを更新・再起動
+        id: send-command
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --targets "Key=tag:Environment,Values=${{ steps.env.outputs.environment }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "aws s3 cp s3://${{ steps.env.outputs.artifacts_bucket }}/server /opt/mokudb-app/server",
+              "chown mokudb:mokudb /opt/mokudb-app/server",
+              "chmod 750 /opt/mokudb-app/server",
+              "systemctl restart mokudb-app.service"
+            ]' \
+            --query "Command.CommandId" --output text)
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+
+      - name: コマンドの完了を待って結果を確認
+        run: |
+          for i in $(seq 1 30); do
+            STATUS=$(aws ssm list-command-invocations \
+              --command-id ${{ steps.send-command.outputs.command_id }} \
+              --details --query "CommandInvocations[0].Status" --output text 2>/dev/null || echo "Pending")
+            if [ "$STATUS" = "Success" ]; then
+              echo "デプロイ成功"
+              exit 0
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "デプロイ失敗: $STATUS"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "タイムアウト: 5分以内に完了しませんでした"
+          exit 1
+
+      # --- フロントエンド ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: db-internal-app/frontend/package-lock.json
+
+      - name: フロントエンドの依存関係をインストール
+        working-directory: db-internal-app/frontend
+        run: npm ci
+
+      - name: フロントエンドをビルド
+        working-directory: db-internal-app/frontend
+        run: |
+          if [ "${{ steps.env.outputs.build_mode }}" = "staging" ]; then
+            npm run build:staging
+          else
+            npm run build
+          fi
+
+      - name: S3に同期
+        working-directory: db-internal-app/frontend
+        run: aws s3 sync dist/ s3://${{ steps.env.outputs.frontend_bucket }} --delete
+
+      - name: CloudFrontキャッシュを無効化
+        run: aws cloudfront create-invalidation --distribution-id ${{ steps.env.outputs.cloudfront_id }} --paths "/*"
