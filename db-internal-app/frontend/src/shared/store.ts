@@ -1,0 +1,374 @@
+import { create } from 'zustand'
+import { execSql, listTables, resetSession } from './api'
+import { buildTemplate, type SqlMode } from './sqlTemplates'
+import { translate } from './i18n'
+import type { ExecResponse, TableInfo, TreeSnapshot, WalRecord } from './types'
+
+const DEFAULT_TABLE = 'users'
+
+// 内部ノードのセルは[複合キー][子ページID 4byte]だけで、name等の他カラムを
+// 一切含まない。そのためnameだけを長くパディングしても、内部ノードの容量
+// (実測200件近く)は全く変わらず、Rootが極端に横広がりになってしまう
+// (実機フィードバックで発覚)。複合キーは葉・内部ノード両方に含まれるため、
+// 主キー(id)自体を長くパディングすることで両方の容量を一緒に下げる。
+//
+// パディング自体は「バックエンドでidにパディングを追加したらいい」という
+// ユーザー指示により、db-internal-appのバックエンド(dbsession/padding.go)が
+// SQL実行前に自動で行う。フロントエンドは常に短い素のid(1〜MAX_RANDOM_ID)を
+// 送るだけでよい。ID_NUMERIC_DIGITSはバックエンド側のゼロ埋め桁数と合わせて
+// あり、既存行(SELECT等で読み戻した、既にパディング済みの値)からPKの数値
+// 部分を読み取る際に使う。
+const ID_NUMERIC_DIGITS = 3 // 999件まで辞書順=数値順が一致する(MAX_RANDOM_IDと合わせる)
+const ID_COLUMN_LENGTH = 600 // CREATE TABLEでのid列の宣言長。バックエンドがこの長さまでパディングする
+const NAME_COLUMN_LENGTH = 50 // nameはもうパディングしないので実際の値で足りる長さ
+
+const INIT_SQL = `CREATE TABLE ${DEFAULT_TABLE} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
+
+type State = {
+  sql: string
+  /** 現在選択中(表示対象)のテーブル名。エディターのSQLはこのテーブル宛とは
+   * 限らない(CREATE TABLE等で別名を指定できる)が、実行後にB+Treeをダンプ
+   * するのは常にこのテーブル。 */
+  currentTable: string
+  /** セッション内に存在する全テーブル(タブ切り替えUI用)。名前の辞書順。 */
+  tables: TableInfo[]
+  busy: boolean
+  error: string | null
+  lastResult: ExecResponse | null
+  tree: TreeSnapshot | null
+  /** 直前のスナップショットに存在しなかった行のPK(先頭カラム)集合。
+   * 「新規に増えたKV」のハイライトに使う簡易diff(先頭カラムをPKとみなす)。 */
+  newPKs: Set<unknown>
+  /** セッションのWALレコード一覧(LSN昇順)。WalCard用。B+Treeカードは使わない。 */
+  walRecords: WalRecord[]
+  setSql: (sql: string) => void
+  /** セッション開始時に自動で呼ぶ。デモ用テーブルを自分で作らせるのは
+   * ユーザーにとって無駄な手順、というユーザー指示により、初回アクセス
+   * (またはリセット後)に自動でCREATE TABLEしておく。 */
+  init: () => Promise<void>
+  run: () => Promise<void>
+  /** ランダムなid・名前でn件の行を連続INSERTする。1ページに収まる件数
+   * (実測数件)を手でクリックせずに超えられるようにするための、フロントエンド
+   * 側の便宜機能(SQL言語自体に複数行INSERTを追加したわけではない)。
+   * 「Add Random」(n=1)と「Bulk Insert」(n=任意件数)の両方がこれを呼ぶ。 */
+  seedMany: (n: number) => Promise<void>
+  /** タブをクリックしたときに呼ぶ。選択テーブルを切り替えて、そのテーブルの
+   * 現在のデータ・B+Treeを取り直す。 */
+  switchTable: (name: string) => Promise<void>
+  /** 「+ 新しいテーブル」ボタン用。t1, t2, ...という連番の名前でCREATE TABLEを
+   * 即実行し、そのテーブルに切り替える(エディターに入力するだけで実行は
+   * ユーザー任せ、という以前の挙動はユーザー指示によりやめた)。 */
+  createTable: () => Promise<void>
+  /** エディターのINSERT/UPDATE/DELETE切り替えボタン用。現在の状態。 */
+  sqlMode: SqlMode
+  /** モードを切り替えつつ、選択中テーブルのカラムに沿ったテンプレートSQL
+   * (値は空クオート)をエディターに差し込む。 */
+  applySqlMode: (mode: SqlMode) => void
+  /** テーブルの行をクリックしたときに呼ぶ。その行の(パディングを取り除いた)
+   * 短いPK値をWHERE句に埋め込む。パディングの付け外しはバックエンドが担う
+   * ため、フロントエンドは常に短い素の値だけを扱えばよい。INSERTモード中に
+   * クリックした場合は、既存行を触る操作だと考えUPDATEに切り替える。 */
+  fillTemplateForRow: (pkValue: string) => void
+  reset: () => Promise<void>
+}
+
+// 1つの物理B+Treeを全テーブルで共有しているため、tree.pages[].rowsには他
+// テーブルの行も混ざる。tableに一致する行だけを対象にする(rowTablesで判定)。
+function collectPKs(tree: TreeSnapshot | null, table: string): Set<unknown> {
+  const pks = new Set<unknown>()
+  if (!tree) return pks
+  for (const page of Object.values(tree.pages)) {
+    if (!page.isLeaf || !page.rows) continue
+    page.rows.forEach((row, i) => {
+      if ((page.rowTables?.[i] ?? table) === table) pks.add(row[0])
+    })
+  }
+  return pks
+}
+
+function diffNewPKs(prevTree: TreeSnapshot | null, nextTree: TreeSnapshot | null, table: string): Set<unknown> {
+  const prevPKs = collectPKs(prevTree, table)
+  const nextPKs = collectPKs(nextTree, table)
+  const diff = new Set<unknown>()
+  for (const pk of nextPKs) {
+    if (!prevPKs.has(pk)) diff.add(pk)
+  }
+  return diff
+}
+
+// 「dummy-*」ではなく実在の名前らしい値を入れたい、というユーザー指示による。
+// ダミーだと分かる無機質な値より、実データっぽい方がB+Treeの中身として自然に見える。
+const REALISTIC_NAMES = [
+  'Alice', 'Bob', 'Charlie', 'Diana', 'Ethan', 'Fiona', 'George', 'Hannah',
+  'Ivan', 'Julia', 'Kevin', 'Laura', 'Mike', 'Nina', 'Oscar', 'Paula',
+  'Quinn', 'Rachel', 'Sam', 'Tina', 'Uma', 'Victor', 'Wendy', 'Xander',
+  'Yara', 'Zoe',
+]
+
+function randomName(): string {
+  return REALISTIC_NAMES[Math.floor(Math.random() * REALISTIC_NAMES.length)]
+}
+
+/** 既存の行のPK(先頭6桁の数値部分)を全て集める。手入力された短いPK
+ * ("1"等)が混ざっていても、先頭を数値として読める範囲で拾う。(他テーブルの
+ * 行は無視する。tableに一致する行だけが対象。)ランダムなidを採番する際の
+ * 重複チェックに使う。 */
+function existingNumericIds(tree: TreeSnapshot | null, table: string): Set<number> {
+  const ids = new Set<number>()
+  if (!tree) return ids
+  for (const page of Object.values(tree.pages)) {
+    if (!page.isLeaf || !page.rows) continue
+    page.rows.forEach((row, i) => {
+      if ((page.rowTables?.[i] ?? table) !== table) return
+      const numeric = String(row[0]).slice(0, ID_NUMERIC_DIGITS)
+      const id = Number(numeric)
+      if (!Number.isNaN(id)) ids.add(id)
+    })
+  }
+  return ids
+}
+
+// 「桁数が大きすぎる」というユーザー指示により1〜999の範囲にした
+// (ID_NUMERIC_DIGITSもこれに合わせて3桁にしてある)。UIの「まとめて追加」の
+// 件数上限にも使う(範囲より多い件数を要求されるとrandomUniqueIdsが無限ループ
+// しかねないため)。
+export const MAX_RANDOM_ID = 999
+
+/** 「連番じゃなくてランダムにしよう」というユーザー指示による。既存の行(他
+ * テーブルの行を除く)・同一バッチ内のidと重複しない範囲で、最大n件のランダムな
+ * 数値idを選ぶ。範囲(1〜MAX_RANDOM_ID)より空きが少ない場合は、無限ループせず
+ * 採れるだけ採って返す(呼び出し側のUIでも上限は制御するが、念のための保険)。 */
+function randomUniqueIds(n: number, exclude: Set<number>): number[] {
+  const used = new Set(exclude)
+  const picked: number[] = []
+  const want = Math.min(n, Math.max(MAX_RANDOM_ID - used.size, 0))
+  while (picked.length < want) {
+    const candidate = 1 + Math.floor(Math.random() * MAX_RANDOM_ID)
+    if (used.has(candidate)) continue
+    used.add(candidate)
+    picked.push(candidate)
+  }
+  return picked
+}
+
+/** 既存テーブル名から「t1, t2, ...」の次の連番を決める。t\d+という名前の
+ * テーブルの中の最大値+1(存在しなければt1から)。 */
+function nextAutoTableName(tables: TableInfo[]): string {
+  let max = 0
+  for (const t of tables) {
+    const m = /^t(\d+)$/.exec(t.name)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return `t${max + 1}`
+}
+
+/** セッションのDBに(まだなければ)デモ用テーブルを作る。他人と共有するセッション
+ * ではない前提だが、既に存在する場合はcatalog.goの"table \"users\" already
+ * exists"エラーが返るだけなので、それは無視して現在の木を取得し直す。 */
+async function ensureTable(): Promise<ExecResponse> {
+  const result = await execSql(INIT_SQL, DEFAULT_TABLE, true)
+  if (!result.error) return result
+  if (!result.error.includes('already exists')) return result
+  return execSql(`SELECT * FROM ${DEFAULT_TABLE}`, DEFAULT_TABLE, true)
+}
+
+export const useDbInternal = create<State>((set, get) => ({
+  sql: '',
+  currentTable: DEFAULT_TABLE,
+  tables: [],
+  busy: false,
+  error: null,
+  lastResult: null,
+  tree: null,
+  newPKs: new Set(),
+  walRecords: [],
+  sqlMode: 'INSERT',
+
+  setSql: (sql) => set({ sql }),
+
+  applySqlMode: (mode) => {
+    const { currentTable, tables } = get()
+    const columns = tables.find((t) => t.name === currentTable)?.columns ?? []
+    set({ sqlMode: mode, sql: buildTemplate(mode, currentTable, columns) })
+  },
+
+  fillTemplateForRow: (pkValue) => {
+    const { currentTable, tables, sqlMode } = get()
+    const columns = tables.find((t) => t.name === currentTable)?.columns ?? []
+    const mode = sqlMode === 'INSERT' ? 'UPDATE' : sqlMode
+    set({ sqlMode: mode, sql: buildTemplate(mode, currentTable, columns, pkValue) })
+  },
+
+  init: async () => {
+    set({ busy: true, error: null })
+    try {
+      const result = await ensureTable()
+      if (result.error) {
+        set({ busy: false, error: result.error })
+        return
+      }
+      const tables = await listTables()
+      set({ busy: false, lastResult: result, tree: result.tree ?? null, walRecords: result.wal ?? [], tables })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  run: async () => {
+    const { sql, currentTable, tree: prevTree } = get()
+    set({ busy: true, error: null })
+    try {
+      const result = await execSql(sql, currentTable, true)
+      if (result.error) {
+        set({ busy: false, error: result.error })
+        return
+      }
+      // CREATE/DROP TABLE等でテーブル一覧が変わっている可能性があるため、
+      // 実行のたびにタブ一覧も取り直す。
+      const tables = await listTables()
+      const nextTree = result.tree ?? prevTree
+      // バックエンドのResult.AffectedRowsが常に0を返す既知の問題があるため、
+      // 実行結果からは成功/失敗も何件処理したかも分からない。DELETE文について
+      // だけは、行数が実際に減ったかをフロントエンド側で確認し、減っていなければ
+      // 警告を出す(「delete文を実行したけど、削除されない」というユーザー報告
+      // への対応。空のWHERE句のまま実行して0件ヒットしていたことが原因だった)。
+      let warning: string | null = null
+      if (/^\s*DELETE\b/i.test(sql)) {
+        const prevCount = collectPKs(prevTree, currentTable).size
+        const nextCount = collectPKs(nextTree, currentTable).size
+        if (nextCount >= prevCount) {
+          warning = translate('deleteNoMatch')
+        }
+      }
+      set({
+        busy: false,
+        error: warning,
+        lastResult: result,
+        tree: nextTree,
+        newPKs: diffNewPKs(prevTree, nextTree, currentTable),
+        walRecords: result.wal ?? [],
+        tables,
+      })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  seedMany: async (n) => {
+    const { currentTable, tree: prevTree } = get()
+    set({ busy: true, error: null })
+    const BATCH_SIZE = 25 // 直列だと数千件で数分かかるため、まとめて並行実行する
+    try {
+      // idの空き範囲(MAX_RANDOM_ID)がnより少ない場合、randomUniqueIdsはn件
+      // 未満しか返さない。ループの範囲・「最後の1件」判定はidsの実際の長さを
+      // 基準にする(nのままだと、最後のINSERTにツリー取得フラグが一度も立たず、
+      // 実際には挿入されたのに画面が更新されない)。
+      const ids = randomUniqueIds(n, existingNumericIds(prevTree, currentTable))
+      let firstError: string | null = null
+      let finalResult: ExecResponse | null = null
+      // 木のダンプはサーバー側でページ全体を辿るコストがあるため、毎回は要求せず
+      // 一番最後のINSERTでだけツリーを取得する。
+      for (let batchStart = 0; batchStart < ids.length && !firstError; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, ids.length)
+        const results = await Promise.all(
+          ids.slice(batchStart, batchEnd).map((id, k) => {
+            const wantTree = batchStart + k === ids.length - 1
+            // idは短い素の値のまま送る。B+Tree分岐用のパディングはバックエンド
+            // (dbsession/padding.go)が自動で行う(「バックエンドでidにパディング
+            // を追加したらいい」というユーザー指示による)。
+            return execSql(
+              `INSERT INTO ${currentTable} VALUES ('${id}', '${randomName()}')`,
+              wantTree ? currentTable : undefined,
+              wantTree,
+            )
+          }),
+        )
+        const errored = results.find((r) => r.error)
+        if (errored) firstError = errored.error ?? '不明なエラー'
+        const withTree = results.find((r) => r.tree)
+        if (withTree) finalResult = withTree
+      }
+
+      const finalTree = finalResult?.tree ?? prevTree
+      set({
+        busy: false,
+        error: firstError,
+        lastResult: finalResult,
+        tree: finalTree,
+        newPKs: diffNewPKs(prevTree, finalTree, currentTable),
+        walRecords: finalResult?.wal ?? get().walRecords,
+      })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  switchTable: async (name) => {
+    set({ busy: true, error: null, currentTable: name })
+    try {
+      const result = await execSql(`SELECT * FROM ${name}`, name, true)
+      if (result.error) {
+        set({ busy: false, error: result.error, tree: null, newPKs: new Set() })
+        return
+      }
+      set({
+        busy: false,
+        lastResult: result,
+        tree: result.tree ?? null,
+        newPKs: new Set(),
+        walRecords: result.wal ?? [],
+      })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  createTable: async () => {
+    const { tables } = get()
+    const name = nextAutoTableName(tables)
+    // 実行するCREATE TABLE文はエディターには表示しない(自動生成された裏側の
+    // クエリなので、ユーザー指示によりエディターの内容は変えない)。
+    const createSql = `CREATE TABLE ${name} (id VARCHAR(${ID_COLUMN_LENGTH}) PRIMARY KEY, name VARCHAR(${NAME_COLUMN_LENGTH}))`
+    set({ busy: true, error: null })
+    try {
+      const result = await execSql(createSql, name, true)
+      if (result.error) {
+        set({ busy: false, error: result.error })
+        return
+      }
+      const newTables = await listTables()
+      set({
+        busy: false,
+        lastResult: result,
+        tree: result.tree ?? null,
+        tables: newTables,
+        currentTable: name,
+        newPKs: new Set(),
+        walRecords: result.wal ?? [],
+      })
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  reset: async () => {
+    set({ busy: true, error: null })
+    try {
+      await resetSession()
+      set({
+        busy: false,
+        lastResult: null,
+        tree: null,
+        newPKs: new Set(),
+        walRecords: [],
+        sql: '',
+        currentTable: DEFAULT_TABLE,
+        tables: [],
+        sqlMode: 'INSERT',
+      })
+      await get().init()
+    } catch (e) {
+      set({ busy: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+}))

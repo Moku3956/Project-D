@@ -1,0 +1,154 @@
+package btree
+
+import (
+	"bytes"
+	"path/filepath"
+	"testing"
+
+	"github.com/Moku3956/Project-D/storage/buffer"
+	"github.com/Moku3956/Project-D/storage/page"
+	"github.com/Moku3956/Project-D/storage/wal"
+	"github.com/Moku3956/Project-D/types"
+)
+
+// walRedoSetup builds a WAL manager, buffer pool, and BTree in a temporary directory.
+func walRedoSetup(t *testing.T) (*page.DiskManager, *wal.WALManager, *buffer.BufferPool, *BTree) {
+	t.Helper()
+	dir := t.TempDir()
+	dm, err := page.NewDiskManager(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatalf("NewDiskManager: %v", err)
+	}
+	t.Cleanup(func() { dm.Close() }) //nolint:errcheck
+	wm, err := wal.NewWALManager(filepath.Join(dir, "t.wal"))
+	if err != nil {
+		t.Fatalf("NewWALManager: %v", err)
+	}
+	t.Cleanup(func() { wm.Close() }) //nolint:errcheck
+	bp := buffer.NewBufferPool(dm, wm, 100)
+	bt, err := NewBTree(dm, bp, wm)
+	if err != nil {
+		t.Fatalf("NewBTree: %v", err)
+	}
+	return dm, wm, bp, bt
+}
+
+// Checks that a dirty page from an Insert is not written to disk until
+// FlushAll is called (the No-Steal policy).
+func TestInsertNoStealBeforeFlush(t *testing.T) {
+	dm, _, bp, bt := walRedoSetup(t)
+	schema := testSchema()
+
+	rootID := dm.RootPageID()
+	before, err := dm.ReadPage(rootID)
+	if err != nil {
+		t.Fatalf("ReadPage: %v", err)
+	}
+	beforeBytes := append([]byte(nil), before.Bytes()...)
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Before FlushAll, the on-disk page should still be the pre-Insert bytes.
+	afterInsert, err := dm.ReadPage(rootID)
+	if err != nil {
+		t.Fatalf("ReadPage: %v", err)
+	}
+	if !bytes.Equal(beforeBytes, afterInsert.Bytes()) {
+		t.Error("on-disk page changed before FlushAll (violates No-Steal)")
+	}
+
+	// Only after FlushAll should the change land on disk.
+	if err := bp.FlushAll(map[uint64]bool{testTxnID: true}); err != nil {
+		t.Fatalf("FlushAll: %v", err)
+	}
+	afterFlush, err := dm.ReadPage(rootID)
+	if err != nil {
+		t.Fatalf("ReadPage: %v", err)
+	}
+	if bytes.Equal(beforeBytes, afterFlush.Bytes()) {
+		t.Error("on-disk page is still unchanged even after FlushAll")
+	}
+}
+
+// Checks that an Insert appends a WAL record carrying the full page bytes as RedoData.
+func TestInsertLogsRedoData(t *testing.T) {
+	_, wm, _, bt := walRedoSetup(t)
+	schema := testSchema()
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Append only buffers in memory, so flush before reading the file back.
+	if err := wm.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	records, err := wm.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+
+	found := false
+	for _, r := range records {
+		if r.Op == wal.OpInsert && r.TxnID == testTxnID && len(r.RedoData) == page.PageSize {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("no redo log (full-page RedoData) found for the Insert")
+	}
+}
+
+// Updateが1回のページ変更(OpUpdateレコード1件)で済み、素朴にDelete+Insertを
+// 呼んだ場合のようにOpDelete+OpInsertの2件にならないことを確認する。
+func TestUpdateLogsSingleOpUpdateRecord(t *testing.T) {
+	_, wm, _, bt := walRedoSetup(t)
+	schema := testSchema()
+
+	row := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Alice"}}}
+	if err := bt.Insert(testTableID, types.IntValue{V: 1}, row, schema, testTxnID); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Insertとは別のTxnIDにして、Updateが生成したレコードだけを数えられるようにする。
+	const updateTxnID = uint64(2)
+	newRow := types.Row{Values: []types.Value{types.IntValue{V: 1}, types.StringValue{V: "Bob"}}}
+	if err := bt.Update(testTableID, types.IntValue{V: 1}, newRow, schema, updateTxnID); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	if err := wm.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	records, err := wm.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+
+	var updateCount, deleteCount, insertCount int
+	for _, r := range records {
+		if r.TxnID != updateTxnID {
+			continue
+		}
+		switch r.Op {
+		case wal.OpUpdate:
+			updateCount++
+		case wal.OpDelete:
+			deleteCount++
+		case wal.OpInsert:
+			insertCount++
+		}
+	}
+	if updateCount != 1 {
+		t.Errorf("OpUpdateレコード数 = %d, want 1", updateCount)
+	}
+	if deleteCount != 0 || insertCount != 0 {
+		t.Errorf("UpdateがOpDelete/OpInsertを生成した(delete=%d, insert=%d), want 0/0", deleteCount, insertCount)
+	}
+}

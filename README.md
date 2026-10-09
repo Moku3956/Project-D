@@ -1,69 +1,99 @@
 # Project-D
 
-GoでゼロからDBMSを自作するプロジェクト。SQLを実行したときにDBMSの内部で何が起きているかを可視化するSQL学習サイトと、スタンドアロンのDBMSライブラリの2つを兼ねる。
+Project-D is a monorepo consisting of a database built from scratch in Go, "**MokuDB**", and there is an application that use it for visualize database internal.
+
+## About Me
+
+I'm a third-year economics major. I study economics, but I've also been learning CS on my own for the past 2-3 years!
+I love databases!
+You can reach out via [Email](mailto:moku3956@icloud.com).
+
+
+## About MokuDB
+
+**MokuDB** is a database I'm building from scratch — not to be used in production, but to **visualize what happens inside a database**.
+
+Existing books about databases are extremely dense: they assume a lot of advanced prior knowledge, so it takes real persistence to get through them. I think a big reason for that is that words alone don't give you a concrete picture of what's actually happening. So I decided that visualizing what happens inside a database after a query runs was important, and built MokuDB from scratch in Go so that every step from parsing SQL to writing it to disk can be visualized and experienced. Another reason I built it from scratch: rather than trying to dig through and understand the internals of an existing DBMS in detail, it felt simpler to just implement one myself.
 
 ---
 
-## 目的
+## MokuDB Features
 
-既存のSQL学習サービスはSQLの書き方は教えてくれるが、「なぜそう動くのか」「内部でどう処理されているのか」は教えてくれない。本プロジェクトはSQLがパースされてからディスクに書き込まれるまでの全ステップをブラウザ上で可視化することで、DBMSの仕組みを直感的に理解できるようにする。
+### Supported SQL
 
----
+- **DDL**: `CREATE TABLE`, `DROP TABLE`
+- **DML**: `SELECT`, `INSERT`, `UPDATE`, `DELETE`
+- **Transactions**: `BEGIN`, `COMMIT`, `ROLLBACK`
+- **Data types**: `INT`, `VARCHAR(n)`, `BOOLEAN`, `NULL`
+- **Constraints**: `PRIMARY KEY`, `NOT NULL`
+- **Clauses**: `WHERE`, `INNER JOIN`, `ORDER BY`, `LIMIT`
+- **Operators**: comparison operators, logical operators, `IS NULL` / `IS NOT NULL`
 
-## 機能
+### Storage Engine
 
-### サポートするSQL
-
-- **DDL**: `CREATE TABLE`、`DROP TABLE`
-- **DML**: `SELECT`、`INSERT`、`UPDATE`、`DELETE`
-- **トランザクション**: `BEGIN`、`COMMIT`、`ROLLBACK`
-- **データ型**: `INT`、`VARCHAR(n)`、`BOOLEAN`、`NULL`
-- **制約**: `PRIMARY KEY`、`NOT NULL`
-- **句**: `WHERE`、`INNER JOIN`、`ORDER BY`、`LIMIT`
-- **演算子**: 比較演算子、論理演算子、`IS NULL` / `IS NOT NULL`
-
-### ストレージエンジン
-
-- B+Treeベースのディスクストレージ
-- WAL（Write-Ahead Log）によるクラッシュリカバリ
-- LRUバッファプール
-- テーブルレベルの並行制御（RWMutex）
+- B+Tree-based disk storage
+- Crash recovery via WAL (Write-Ahead Log)
+- LRU buffer pool
+- Table-level concurrency control (RWMutex)
 
 ---
 
-## アーキテクチャ
+## Architecture
 
-SQLの処理はパイプラインとして実装されている。
+Inside MokuDB, SQL processing is implemented as a pipeline.
 
 ```
-SQL文字列
-  → Lexer   : トークン列に分解
-  → Parser  : ASTに変換
-  → Planner : プランツリーを生成
-  → Executor: データを読み書きして結果を返す
+SQL text
+  → Lexer   : breaks it into a token stream
+  → Parser  : converts it into an AST
+  → Planner : generates a plan tree (this is also where the execution plan is chosen)
+  → Executor: reads/writes data and returns the result (Volcano model)
   → Storage : B+Tree / WAL / Buffer Pool
 ```
 
-### ディレクトリ構成
+External Go programs like `sql-monster` don't directly import internal packages such as `executor`/`planner`/`txn` — they use MokuDB only through the `client` package.
 
-```
-├── types/      # 共有型（Value / Row / Column / Schema）
-├── catalog/    # スキーマ管理（catalog.json）
-├── sql/        # Lexer / Parser / AST / Planner
-├── executor/   # Volcano モデルの実行エンジン
-├── txn/        # トランザクション管理
-├── storage/    # B+Tree / WAL / Buffer Pool
-├── server/     # 可視化用REST APIサーバー
-├── frontend/   # React フロントエンド
-└── cmd/        # エントリポイント
+```go
+db, err := client.Open(dir)
+result, err := db.Exec(sql)   // one statement = one transaction, auto-committed
+
+tx := db.Begin()
+result, err := tx.Exec(sql)
+err = tx.Commit()             // or tx.Rollback()
 ```
 
 ---
 
-## セットアップ
+## Repository Structure
+
+The repo is centered on MokuDB itself (the packages at the repository root), alongside two applications that use it.
+
+- **MokuDB core** (the packages at the repository root) — handles SQL execution and data persistence. Can be used from Go programs via the `client` package
+- **`db-internal-app/`** — a learning site that uses MokuDB as its backend and visualizes SQL execution internals (lexing through storage writes) in real time in the browser (in design)
+
+
+### Directory Layout
+
+```
+├── types/           # Shared types (Value / Row / Column / Schema)
+├── catalog/         # Schema management (catalog.json)
+├── sql/             # Lexer / Parser / AST / Planner
+├── executor/        # Execution engine (Volcano model)
+├── txn/             # Transaction management (locking, WAL integration)
+├── storage/         # B+Tree / WAL / Buffer Pool
+├── infrastructure/  # Implements executor's TableRepository with a B+Tree
+├── client/          # Public API for external programs
+├── api/             # HTTP handlers (POST /query, GET /health)
+├── cmd/server/      # HTTP server entry point
+├── db-internal-app/ # MokuDB internals visualization app (in design)
+```
+
+---
+
+## Setup
 
 WIP
 
-## 使い方
+## Usage
 
 WIP

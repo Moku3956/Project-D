@@ -1,11 +1,14 @@
 # Go
 /cmd/dbms/dbms
 /cmd/server/server
+/db-internal-server
 *.test
 *.out
 
 # DB files
 *.db
+*.wal
+data/
 
 # Frontend
 frontend/node_modules/

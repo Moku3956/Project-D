@@ -1,0 +1,275 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+)
+
+func newCookieJar(t *testing.T, rawURL string) *cookiejar.Jar {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar.New: %v", err)
+	}
+	if _, err := url.Parse(rawURL); err != nil {
+		t.Fatalf("parse URL: %v", err)
+	}
+	return jar
+}
+
+func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	dir := t.TempDir()
+	s := NewServer(dir, false)
+	// sessionStoreのcleanupLoopが、後続のテストが書き換えるidleTimeout等の
+	// パッケージ変数を読み続けてリークするのを防ぐため、必ず止める。
+	t.Cleanup(s.sessions.stopCleanup)
+	mux := http.NewServeMux()
+	s.RegisterRoutes(mux)
+	srv := httptest.NewServer(WithCORS([]string{"http://localhost:5173"})(mux))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func postExec(t *testing.T, client *http.Client, url string, req execRequest) execResponse {
+	t.Helper()
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	resp, err := client.Post(url+"/api/exec", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST /api/exec: %v", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	var out execResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return out
+}
+
+// TestSecureCookiesAddsSameSiteNoneAndSecure は、secureCookies=trueのとき
+// セッションCookieがクロスオリジンのfetchでも送られるよう、SameSite=None +
+// Secureになることを確認する(フロントエンドとバックエンドが別オリジンに
+// デプロイされる本番/ステージング環境向けの設定)。
+// TestWithCORSAllowsOnlyListedOrigins は、許可リストに含まれるOriginだけに
+// Access-Control-Allow-Originが付き、含まれないOriginには一切CORSヘッダーが
+// 付かない(ブラウザ側が読み取りを拒否する)ことを確認する。
+func TestWithCORSAllowsOnlyListedOrigins(t *testing.T) {
+	handler := WithCORS([]string{"https://allowed.example.com"})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	t.Run("allowed origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Header.Set("Origin", "https://allowed.example.com")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if got := w.Result().Header.Get("Access-Control-Allow-Origin"); got != "https://allowed.example.com" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want https://allowed.example.com", got)
+		}
+	})
+
+	t.Run("disallowed origin", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.Header.Set("Origin", "https://evil.example.com")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if got := w.Result().Header.Get("Access-Control-Allow-Origin"); got != "" {
+			t.Errorf("Access-Control-Allow-Origin = %q, want empty (not allowed)", got)
+		}
+	})
+}
+
+func TestSecureCookiesAddsSameSiteNoneAndSecure(t *testing.T) {
+	dir := t.TempDir()
+	s := NewServer(dir, true)
+	t.Cleanup(s.sessions.stopCleanup)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exec", strings.NewReader(`{"sql":"SELECT 1"}`))
+	w := httptest.NewRecorder()
+	s.handleExec(w, req)
+
+	resp := w.Result()
+	cookies := resp.Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	c := cookies[0]
+	if c.SameSite != http.SameSiteNoneMode {
+		t.Errorf("SameSite = %v, want SameSiteNoneMode", c.SameSite)
+	}
+	if !c.Secure {
+		t.Error("expected Secure to be true")
+	}
+}
+
+// TestInsecureCookiesKeepsSameSiteLax は、secureCookies=false(デフォルト、
+// ローカル開発向け)のとき、従来通りSameSite=LaxでSecureなしのままであることを
+// 確認する。
+func TestInsecureCookiesKeepsSameSiteLax(t *testing.T) {
+	dir := t.TempDir()
+	s := NewServer(dir, false)
+	t.Cleanup(s.sessions.stopCleanup)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/exec", strings.NewReader(`{"sql":"SELECT 1"}`))
+	w := httptest.NewRecorder()
+	s.handleExec(w, req)
+
+	resp := w.Result()
+	cookies := resp.Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	c := cookies[0]
+	if c.SameSite != http.SameSiteLaxMode {
+		t.Errorf("SameSite = %v, want SameSiteLaxMode", c.SameSite)
+	}
+	if c.Secure {
+		t.Error("expected Secure to be false")
+	}
+}
+
+func TestExecEndpointSetsSessionCookieAndPersists(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"})
+	if res.Error != "" {
+		t.Fatalf("CREATE TABLE error: %s", res.Error)
+	}
+
+	res = postExec(t, client, srv.URL, execRequest{SQL: "INSERT INTO users VALUES (1, 'Alice')"})
+	if res.Error != "" {
+		t.Fatalf("INSERT error: %s", res.Error)
+	}
+
+	// 同じCookie(セッション)を使う2回目のリクエストで、1回目のCREATE TABLE/INSERTが
+	// 見えることを確認する(セッションがリクエストをまたいで永続化していること)。
+	res = postExec(t, client, srv.URL, execRequest{SQL: "SELECT * FROM users", Table: "users"})
+	if res.Error != "" {
+		t.Fatalf("SELECT error: %s", res.Error)
+	}
+	if len(res.Rows) != 1 {
+		t.Fatalf("Rows = %d, want 1", len(res.Rows))
+	}
+	if res.Tree == nil {
+		t.Fatal("Tree should be populated when table is specified")
+	}
+	root, ok := res.Tree.Pages[res.Tree.RootPageID]
+	if !ok {
+		t.Fatal("root page missing from tree response")
+	}
+	if !root.IsLeaf || len(root.Rows) != 1 {
+		t.Errorf("root = %+v, want a leaf with 1 row", root)
+	}
+}
+
+func TestExecEndpointReturnsParseErrorAsField(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "NOT VALID SQL"})
+	if res.Error == "" {
+		t.Fatal("expected a parse error to be reported in the Error field, not an HTTP failure")
+	}
+}
+
+// TestExecEndpointReturnsFriendlyTimeoutError は、queryTimeoutを極端に短くして
+// 実質的に即タイムアウトする状況を作り、context.DeadlineExceededがそのまま
+// 返らず、分かりやすいメッセージに変換されて返ることを確認する。CREATE TABLEの
+// ようなDDLはロック取得・行の読み出しループを経由せずctxを見ないため、SELECT
+// (RLock + executeLockedのpull loopを通る)で確認する。
+func TestExecEndpointReturnsFriendlyTimeoutError(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"})
+	if res.Error != "" {
+		t.Fatalf("CREATE TABLE error: %s", res.Error)
+	}
+
+	original := queryTimeout
+	queryTimeout = time.Microsecond
+	t.Cleanup(func() { queryTimeout = original })
+
+	res = postExec(t, client, srv.URL, execRequest{SQL: "SELECT * FROM users"})
+	if res.Error == "" {
+		t.Fatal("expected a timeout error, got none")
+	}
+	if !strings.Contains(res.Error, "timed out") {
+		t.Errorf("Error = %q, want it to mention a timeout", res.Error)
+	}
+	if strings.Contains(res.Error, "context deadline exceeded") {
+		t.Errorf("Error = %q, should be translated to a friendly message, not the raw context error", res.Error)
+	}
+}
+
+func TestExecEndpointReturnsWalRecordsWhenRequested(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"})
+	if res.Error != "" {
+		t.Fatalf("CREATE TABLE error: %s", res.Error)
+	}
+	if res.Wal != nil {
+		t.Error("Wal should be omitted when not requested")
+	}
+
+	res = postExec(t, client, srv.URL, execRequest{SQL: "INSERT INTO users VALUES (1, 'Alice')", Wal: true})
+	if res.Error != "" {
+		t.Fatalf("INSERT error: %s", res.Error)
+	}
+	if len(res.Wal) == 0 {
+		t.Fatal("expected Wal records to be populated when Wal is requested")
+	}
+
+	var insert *walRecordJSON
+	for i := range res.Wal {
+		if res.Wal[i].Op == "INSERT" {
+			insert = &res.Wal[i]
+			break
+		}
+	}
+	if insert == nil {
+		t.Fatal("no INSERT record in Wal response")
+	}
+	if insert.ChangeKind != "added" || insert.Row == nil {
+		t.Errorf("INSERT record: ChangeKind = %q, Row = %v, want added/non-nil", insert.ChangeKind, insert.Row)
+	}
+}
+
+func TestResetClearsSessionData(t *testing.T) {
+	srv := newTestServer(t)
+	jar := newCookieJar(t, srv.URL)
+	client := &http.Client{Jar: jar}
+
+	postExec(t, client, srv.URL, execRequest{SQL: "CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(50))"})
+	postExec(t, client, srv.URL, execRequest{SQL: "INSERT INTO users VALUES (1, 'Alice')"})
+
+	resp, err := client.Post(srv.URL+"/api/reset", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/reset: %v", err)
+	}
+	resp.Body.Close() //nolint:errcheck
+
+	res := postExec(t, client, srv.URL, execRequest{SQL: "SELECT * FROM users"})
+	if res.Error == "" {
+		t.Fatal("expected an error selecting from a table that no longer exists after reset")
+	}
+}
